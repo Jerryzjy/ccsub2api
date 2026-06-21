@@ -462,6 +462,13 @@ func dataURIToAnthropicImageSource(dataURI string) *AnthropicImageSource {
 		return nil
 	}
 	data := strings.TrimPrefix(rest, "base64,")
+
+	// Detect actual image format from base64 data and correct mismatched media_type.
+	// Claude API validates that declared media_type matches actual content.
+	if corrected := DetectImageMediaType(data); corrected != "" && corrected != mediaType {
+		mediaType = corrected
+	}
+
 	return &AnthropicImageSource{
 		Type:      "base64",
 		MediaType: mediaType,

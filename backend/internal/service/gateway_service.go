@@ -6775,6 +6775,9 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 		body = stripped
 	}
 
+	// 修正错误的图片 media_type（客户端声称 PNG 但实际是 JPEG 等）
+	body = fixImageMediaTypes(body)
+
 	// CCH 签名：将 cch=00000 占位符替换为 xxHash64 签名（需在所有 body 修改之后）
 	if enableCCH {
 		body = signBillingHeaderCCH(body)
