@@ -1286,14 +1286,14 @@
         v-if="account?.platform === 'anthropic' && (account?.type === 'oauth' || account?.type === 'setup-token')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
-        <label class="input-label">Claude Subscription Tier</label>
+        <label class="input-label">{{ t('admin.accounts.quotaControl.claudeTier.label') }}</label>
         <select v-model="claudeTier" class="input">
-          <option value="">Not Set</option>
+          <option value="">{{ t('admin.accounts.quotaControl.claudeTier.notSet') }}</option>
           <option value="Pro">Pro ($20/mo)</option>
           <option value="Max_5x">Max 5x ($100/mo)</option>
           <option value="Max_20x">Max 20x ($200/mo)</option>
         </select>
-        <p class="input-hint">Account subscription tier, displayed in the account list for quick identification.</p>
+        <p class="input-hint">{{ t('admin.accounts.quotaControl.claudeTier.hint') }}</p>
       </div>
 
       <div>
@@ -1927,20 +1927,20 @@
                   windowUtilizationEnabled
                     ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300 dark:bg-primary-900/30 dark:text-primary-400 dark:ring-primary-700'
                     : 'bg-gray-100 text-gray-600 dark:bg-dark-600 dark:text-gray-400']"
-              >Utilization % (Recommended)</button>
+              >{{ t('admin.accounts.quotaControl.windowCost.modeUtilization') }}</button>
               <button type="button"
                 @click="windowUtilizationEnabled = false"
                 :class="['rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
                   !windowUtilizationEnabled
                     ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300 dark:bg-primary-900/30 dark:text-primary-400 dark:ring-primary-700'
                     : 'bg-gray-100 text-gray-600 dark:bg-dark-600 dark:text-gray-400']"
-              >Fixed Dollar $</button>
+              >{{ t('admin.accounts.quotaControl.windowCost.modeFixed') }}</button>
             </div>
 
             <!-- Utilization mode -->
             <div v-if="windowUtilizationEnabled" class="grid grid-cols-2 gap-4">
               <div>
-                <label class="input-label">Stop new sessions at</label>
+                <label class="input-label">{{ t('admin.accounts.quotaControl.windowCost.utilizationLimit') }}</label>
                 <div class="relative">
                   <input
                     v-model.number="windowUtilizationLimit"
@@ -1953,10 +1953,10 @@
                   />
                   <span class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">%</span>
                 </div>
-                <p class="input-hint">Auto-adapts to Pro/5x/20x tier budgets.</p>
+                <p class="input-hint">{{ t('admin.accounts.quotaControl.windowCost.utilizationLimitHint') }}</p>
               </div>
               <div>
-                <label class="input-label">Sticky reserve</label>
+                <label class="input-label">{{ t('admin.accounts.quotaControl.windowCost.utilizationReserve') }}</label>
                 <div class="relative">
                   <input
                     v-model.number="windowUtilizationReserve"
@@ -1969,7 +1969,7 @@
                   />
                   <span class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">%</span>
                 </div>
-                <p class="input-hint">Existing sessions continue until limit + reserve.</p>
+                <p class="input-hint">{{ t('admin.accounts.quotaControl.windowCost.utilizationReserveHint') }}</p>
               </div>
             </div>
 

@@ -3716,12 +3716,23 @@ export default {
         windowCost: {
           label: '5h窗口费用控制',
           hint: '限制账号在5小时窗口内的费用使用',
+          modeUtilization: '使用率 %（推荐）',
+          modeFixed: '固定金额 $',
+          utilizationLimit: '新会话停止阈值',
+          utilizationLimitHint: '自动适配 Pro/5x/20x 不同等级的额度。',
+          utilizationReserve: '粘性预留',
+          utilizationReserveHint: '已有会话可继续使用至阈值+预留。',
           limit: '费用阈值',
           limitPlaceholder: '50',
           limitHint: '达到阈值后不参与新请求调度',
           stickyReserve: '粘性预留额度',
           stickyReservePlaceholder: '10',
           stickyReserveHint: '为粘性会话预留的额外额度'
+        },
+        claudeTier: {
+          label: 'Claude 订阅等级',
+          notSet: '未设置',
+          hint: '账号订阅等级，在账号列表中快速识别。'
         },
         sessionLimit: {
           label: '会话数量控制',

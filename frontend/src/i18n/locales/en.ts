@@ -3567,12 +3567,23 @@ export default {
         windowCost: {
           label: '5h Window Cost Limit',
           hint: 'Limit account cost usage within the 5-hour window',
+          modeUtilization: 'Utilization % (Recommended)',
+          modeFixed: 'Fixed Dollar $',
+          utilizationLimit: 'Stop new sessions at',
+          utilizationLimitHint: 'Auto-adapts to Pro/5x/20x tier budgets.',
+          utilizationReserve: 'Sticky reserve',
+          utilizationReserveHint: 'Existing sessions continue until limit + reserve.',
           limit: 'Cost Threshold',
           limitPlaceholder: '50',
           limitHint: 'Account will not participate in new scheduling after reaching threshold',
           stickyReserve: 'Sticky Reserve',
           stickyReservePlaceholder: '10',
           stickyReserveHint: 'Additional reserve for sticky sessions'
+        },
+        claudeTier: {
+          label: 'Claude Subscription Tier',
+          notSet: 'Not Set',
+          hint: 'Account subscription tier, displayed in the account list for quick identification.'
         },
         sessionLimit: {
           label: 'Session Count Limit',
