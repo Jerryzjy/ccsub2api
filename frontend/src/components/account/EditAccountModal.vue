@@ -1952,6 +1952,68 @@
           </div>
         </div>
 
+        <!-- Window Utilization Limit (ratio-based, auto-adapts to tier) -->
+        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+          <div class="mb-3 flex items-center justify-between">
+            <div>
+              <label class="input-label mb-0">5h Utilization Limit (Recommended)</label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                Use Anthropic's real-time utilization ratio instead of fixed dollar amounts. Auto-adapts to Pro/5x/20x tiers.
+              </p>
+            </div>
+            <button
+              type="button"
+              @click="windowUtilizationEnabled = !windowUtilizationEnabled"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                windowUtilizationEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  windowUtilizationEnabled ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+
+          <div v-if="windowUtilizationEnabled" class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="input-label">Stop new sessions at (%)</label>
+              <div class="relative">
+                <input
+                  v-model.number="windowUtilizationLimit"
+                  type="number"
+                  min="10"
+                  max="100"
+                  step="5"
+                  class="input pr-8"
+                  placeholder="80"
+                />
+                <span class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">%</span>
+              </div>
+              <p class="input-hint">New users won't be assigned to this account above this utilization.</p>
+            </div>
+            <div>
+              <label class="input-label">Sticky reserve (%)</label>
+              <div class="relative">
+                <input
+                  v-model.number="windowUtilizationReserve"
+                  type="number"
+                  min="1"
+                  max="50"
+                  step="5"
+                  class="input pr-8"
+                  placeholder="10"
+                />
+                <span class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">%</span>
+              </div>
+              <p class="input-hint">Existing sessions continue until limit + reserve.</p>
+            </div>
+          </div>
+        </div>
+
         <!-- Session Limit -->
         <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
           <div class="mb-3 flex items-center justify-between">
@@ -2570,6 +2632,9 @@ const antigravityMixedChannelConfirmed = ref(false)
 const windowCostEnabled = ref(false)
 const windowCostLimit = ref<number | null>(null)
 const windowCostStickyReserve = ref<number | null>(null)
+const windowUtilizationEnabled = ref(false)
+const windowUtilizationLimit = ref<number | null>(null)
+const windowUtilizationReserve = ref<number | null>(null)
 const sessionLimitEnabled = ref(false)
 const maxSessions = ref<number | null>(null)
 const sessionIdleTimeout = ref<number | null>(null)
@@ -3457,6 +3522,9 @@ function loadQuotaControlSettings(account: Account) {
   windowCostEnabled.value = false
   windowCostLimit.value = null
   windowCostStickyReserve.value = null
+  windowUtilizationEnabled.value = false
+  windowUtilizationLimit.value = null
+  windowUtilizationReserve.value = null
   sessionLimitEnabled.value = false
   maxSessions.value = null
   sessionIdleTimeout.value = null
@@ -3488,6 +3556,14 @@ function loadQuotaControlSettings(account: Account) {
     windowCostEnabled.value = true
     windowCostLimit.value = account.window_cost_limit
     windowCostStickyReserve.value = account.window_cost_sticky_reserve ?? 10
+  }
+
+  // Load utilization-based window control from extra
+  const extraForUtil = account.extra as Record<string, unknown> | undefined
+  if (extraForUtil?.window_utilization_limit != null && Number(extraForUtil.window_utilization_limit) > 0) {
+    windowUtilizationEnabled.value = true
+    windowUtilizationLimit.value = Math.round(Number(extraForUtil.window_utilization_limit) * 100)
+    windowUtilizationReserve.value = Math.round(Number(extraForUtil.window_utilization_reserve || 0.1) * 100)
   }
 
   if (account.max_sessions != null && account.max_sessions > 0) {
@@ -3994,6 +4070,15 @@ const handleSubmit = async () => {
       } else {
         delete newExtra.window_cost_limit
         delete newExtra.window_cost_sticky_reserve
+      }
+
+      // Window utilization limit settings (ratio-based)
+      if (windowUtilizationEnabled.value && windowUtilizationLimit.value != null && windowUtilizationLimit.value > 0) {
+        newExtra.window_utilization_limit = (windowUtilizationLimit.value || 80) / 100
+        newExtra.window_utilization_reserve = (windowUtilizationReserve.value || 10) / 100
+      } else {
+        delete newExtra.window_utilization_limit
+        delete newExtra.window_utilization_reserve
       }
 
       // Session limit settings
