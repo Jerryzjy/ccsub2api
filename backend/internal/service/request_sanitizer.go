@@ -26,6 +26,7 @@ var maxOutputTokensByModel = map[string]int{
 func sanitizeRequestParams(body []byte, modelID string) []byte {
 	body = clampMaxTokens(body, modelID)
 	body = ensureMinBudgetTokens(body)
+	body = fixToolTypeFunction(body)
 	body = stripUnsupportedServerTools(body, modelID)
 	body = fixToolResultImageMediaTypes(body)
 	return body
@@ -70,6 +71,32 @@ func ensureMinBudgetTokens(body []byte) []byte {
 	if updated, err := sjson.SetBytes(body, "thinking.budget_tokens", 1024); err == nil {
 		return updated
 	}
+	return body
+}
+
+// fixToolTypeFunction replaces "type":"function" with "type":"custom" in tools.
+// Claude API only accepts "custom" or built-in types (bash_20250124, web_search_20250305, etc.).
+// "function" is an OpenAI convention that clients sometimes send to /v1/messages directly.
+func fixToolTypeFunction(body []byte) []byte {
+	tools := gjson.GetBytes(body, "tools")
+	if !tools.IsArray() {
+		return body
+	}
+	modified := false
+	idx := 0
+	tools.ForEach(func(_, tool gjson.Result) bool {
+		toolType := tool.Get("type").String()
+		if toolType == "function" {
+			path := fmt.Sprintf("tools.%d.type", idx)
+			if updated, err := sjson.SetBytes(body, path, "custom"); err == nil {
+				body = updated
+				modified = true
+			}
+		}
+		idx++
+		return true
+	})
+	_ = modified
 	return body
 }
 
