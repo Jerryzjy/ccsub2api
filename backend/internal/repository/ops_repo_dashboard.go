@@ -1067,3 +1067,89 @@ func roundTo1DP(v float64) float64 {
 func roundTo4DP(v float64) float64 {
 	return math.Round(v*10000) / 10000
 }
+
+// opsCacheClientTypeCaseSQL is the single source of truth for classifying a
+// usage_logs row into a client_type bucket from its user_agent. Official Claude
+// Code identifies as `claude-cli/x.y.z` (case-insensitive); any other non-empty
+// UA is treated as a third-party client; empty/NULL is unknown.
+//
+// Kept as one SQL fragment so the classification rule lives in exactly one place
+// and matches the OpsCacheClientType constants on the service side.
+const opsCacheClientTypeCaseSQL = `
+CASE
+  WHEN ul.user_agent ILIKE 'claude-cli/%' THEN 'claude_code'
+  WHEN COALESCE(NULLIF(TRIM(ul.user_agent), ''), '') = '' THEN 'unknown'
+  ELSE 'third_party'
+END`
+
+// GetCacheHitRateByClientType returns the prompt-cache hit rate broken down by
+// (account, client_type) over the filter window, by scanning usage_logs directly.
+//
+// It does NOT use the pre-aggregated dashboard rollup tables: those carry no
+// user_agent dimension, so client-type breakdown is only possible against the
+// detail table. Scope every call to a bounded time window (the buildUsageWhere
+// clause keys on ul.created_at, which is indexed) to keep this affordable.
+func (r *opsRepository) GetCacheHitRateByClientType(ctx context.Context, filter *service.OpsDashboardFilter) ([]*service.OpsCacheHitRateRow, error) {
+	if r == nil || r.db == nil {
+		return nil, fmt.Errorf("nil ops repository")
+	}
+	if filter == nil {
+		return nil, fmt.Errorf("nil filter")
+	}
+	if filter.StartTime.IsZero() || filter.EndTime.IsZero() {
+		return nil, fmt.Errorf("start_time/end_time required")
+	}
+
+	start := filter.StartTime.UTC()
+	end := filter.EndTime.UTC()
+	join, where, args, _ := buildUsageWhere(filter, start, end, 1)
+
+	q := `
+SELECT
+  ul.account_id AS account_id,
+  ` + opsCacheClientTypeCaseSQL + ` AS client_type,
+  COALESCE(COUNT(*), 0) AS request_count,
+  COALESCE(SUM(ul.input_tokens), 0) AS input_tokens,
+  COALESCE(SUM(ul.cache_read_tokens), 0) AS cache_read_tokens,
+  COALESCE(SUM(ul.cache_creation_tokens), 0) AS cache_creation_tokens
+FROM usage_logs ul
+` + join + `
+` + where + `
+GROUP BY ul.account_id, client_type
+ORDER BY ul.account_id, client_type`
+
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := make([]*service.OpsCacheHitRateRow, 0)
+	for rows.Next() {
+		var (
+			accountID  int64
+			clientType string
+			reqCount   int64
+			input      int64
+			cacheRead  int64
+			cacheWrite int64
+		)
+		if err := rows.Scan(&accountID, &clientType, &reqCount, &input, &cacheRead, &cacheWrite); err != nil {
+			return nil, err
+		}
+		denom := float64(input + cacheRead + cacheWrite)
+		out = append(out, &service.OpsCacheHitRateRow{
+			AccountID:           accountID,
+			ClientType:          service.OpsCacheClientType(clientType),
+			RequestCount:        reqCount,
+			InputTokens:         input,
+			CacheReadTokens:     cacheRead,
+			CacheCreationTokens: cacheWrite,
+			HitRate:             roundTo4DP(safeDivideFloat64(float64(cacheRead), denom)),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}

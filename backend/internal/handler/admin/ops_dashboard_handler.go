@@ -245,6 +245,47 @@ func (h *OpsHandler) GetDashboardOpenAITokenStats(c *gin.Context) {
 	response.Success(c, data)
 }
 
+// GetDashboardCacheHitRate returns the prompt-cache hit rate broken down by
+// client type (official Claude Code vs third-party) and account.
+// GET /api/v1/admin/ops/dashboard/cache-hit-rate
+func (h *OpsHandler) GetDashboardCacheHitRate(c *gin.Context) {
+	if h.opsService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Ops service not available")
+		return
+	}
+	if err := h.opsService.RequireMonitoringEnabled(c.Request.Context()); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	startTime, endTime, err := parseOpsTimeRange(c, "24h")
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	filter := &service.OpsDashboardFilter{
+		StartTime: startTime,
+		EndTime:   endTime,
+		Platform:  strings.TrimSpace(c.Query("platform")),
+	}
+	if v := strings.TrimSpace(c.Query("group_id")); v != "" {
+		id, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || id <= 0 {
+			response.BadRequest(c, "Invalid group_id")
+			return
+		}
+		filter.GroupID = &id
+	}
+
+	data, err := h.opsService.GetCacheHitRate(c.Request.Context(), filter)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, data)
+}
+
 func parseOpsOpenAITokenStatsFilter(c *gin.Context) (*service.OpsOpenAITokenStatsFilter, error) {
 	if c == nil {
 		return nil, fmt.Errorf("invalid request")

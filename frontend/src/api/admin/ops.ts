@@ -976,6 +976,44 @@ export async function getDashboardOverview(
   return data
 }
 
+export type OpsCacheClientType = 'claude_code' | 'third_party' | 'unknown'
+
+export interface OpsCacheHitRateRow {
+  account_id: number
+  client_type: OpsCacheClientType
+  request_count: number
+  input_tokens: number
+  cache_read_tokens: number
+  cache_creation_tokens: number
+  hit_rate: number
+}
+
+export interface OpsCacheHitRateReport {
+  start_time: string
+  end_time: string
+  platform: string
+  group_id: number | null
+  rows: OpsCacheHitRateRow[]
+  by_client_type: OpsCacheHitRateRow[]
+}
+
+export async function getCacheHitRate(
+  params: {
+  time_range?: '5m' | '30m' | '1h' | '6h' | '24h'
+  start_time?: string
+  end_time?: string
+  platform?: string
+  group_id?: number | null
+  },
+  options: OpsRequestOptions = {}
+): Promise<OpsCacheHitRateReport> {
+  const { data } = await apiClient.get<OpsCacheHitRateReport>('/admin/ops/dashboard/cache-hit-rate', {
+    params,
+    signal: options.signal
+  })
+  return data
+}
+
 export async function getDashboardSnapshotV2(
   params: {
   time_range?: '5m' | '30m' | '1h' | '6h' | '24h'
@@ -1300,6 +1338,7 @@ async function updateMetricThresholds(thresholds: OpsMetricThresholds): Promise<
 export const opsAPI = {
   getDashboardSnapshotV2,
   getDashboardOverview,
+  getCacheHitRate,
   getThroughputTrend,
   getLatencyHistogram,
   getErrorTrend,

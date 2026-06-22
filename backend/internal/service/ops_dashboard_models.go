@@ -85,3 +85,43 @@ type OpsLatencyHistogramResponse struct {
 	TotalRequests int64                        `json:"total_requests"`
 	Buckets       []*OpsLatencyHistogramBucket `json:"buckets"`
 }
+
+// OpsCacheClientType classifies a request's originating client for cache-hit-rate
+// breakdown. Derived from usage_logs.user_agent at query time (not persisted).
+type OpsCacheClientType string
+
+const (
+	OpsCacheClientClaudeCode OpsCacheClientType = "claude_code"
+	OpsCacheClientThirdParty OpsCacheClientType = "third_party"
+	OpsCacheClientUnknown    OpsCacheClientType = "unknown"
+)
+
+// OpsCacheHitRateRow is the cache-hit-rate for one (account, client_type) bucket.
+//
+// HitRate is cache_read / (input + cache_read + cache_creation); the denominator
+// is the total cacheable input surface, so HitRate answers "what fraction of input
+// tokens were served from cache". 0 when the denominator is 0.
+type OpsCacheHitRateRow struct {
+	AccountID  int64              `json:"account_id"`
+	ClientType OpsCacheClientType `json:"client_type"`
+
+	RequestCount        int64 `json:"request_count"`
+	InputTokens         int64 `json:"input_tokens"`
+	CacheReadTokens     int64 `json:"cache_read_tokens"`
+	CacheCreationTokens int64 `json:"cache_creation_tokens"`
+
+	HitRate float64 `json:"hit_rate"`
+}
+
+// OpsCacheHitRateReport is the cache-hit-rate breakdown for the dashboard card.
+// Rows are per (account, client_type); ByClientType is the same data rolled up
+// across accounts, which is what the headline card numbers use.
+type OpsCacheHitRateReport struct {
+	StartTime time.Time `json:"start_time"`
+	EndTime   time.Time `json:"end_time"`
+	Platform  string    `json:"platform"`
+	GroupID   *int64    `json:"group_id"`
+
+	Rows         []*OpsCacheHitRateRow `json:"rows"`
+	ByClientType []*OpsCacheHitRateRow `json:"by_client_type"`
+}

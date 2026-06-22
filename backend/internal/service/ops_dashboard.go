@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"log"
+	"math"
+	"strings"
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -68,6 +70,81 @@ func (s *OpsService) GetDashboardOverview(ctx context.Context, filter *OpsDashbo
 	overview.HealthScore = computeDashboardHealthScore(time.Now().UTC(), overview)
 
 	return overview, nil
+}
+
+// GetCacheHitRate returns the prompt-cache hit rate broken down by client type
+// (official Claude Code vs third-party vs unknown) and by account, so we can
+// measure how much cache value each upstream account is actually realizing.
+//
+// Always runs against raw usage_logs (the pre-agg rollups carry no user_agent
+// dimension); QueryMode on the filter is ignored.
+func (s *OpsService) GetCacheHitRate(ctx context.Context, filter *OpsDashboardFilter) (*OpsCacheHitRateReport, error) {
+	if err := s.RequireMonitoringEnabled(ctx); err != nil {
+		return nil, err
+	}
+	if s.opsRepo == nil {
+		return nil, infraerrors.ServiceUnavailable("OPS_REPO_UNAVAILABLE", "Ops repository not available")
+	}
+	if filter == nil {
+		return nil, infraerrors.BadRequest("OPS_FILTER_REQUIRED", "filter is required")
+	}
+	if filter.StartTime.IsZero() || filter.EndTime.IsZero() {
+		return nil, infraerrors.BadRequest("OPS_TIME_RANGE_REQUIRED", "start_time/end_time are required")
+	}
+	if filter.StartTime.After(filter.EndTime) {
+		return nil, infraerrors.BadRequest("OPS_TIME_RANGE_INVALID", "start_time must be <= end_time")
+	}
+
+	rows, err := s.opsRepo.GetCacheHitRateByClientType(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+
+	return &OpsCacheHitRateReport{
+		StartTime:    filter.StartTime.UTC(),
+		EndTime:      filter.EndTime.UTC(),
+		Platform:     strings.TrimSpace(filter.Platform),
+		GroupID:      filter.GroupID,
+		Rows:         rows,
+		ByClientType: rollupCacheHitRateByClientType(rows),
+	}, nil
+}
+
+// rollupCacheHitRateByClientType folds per-account rows into one row per client
+// type, recomputing HitRate from the summed token totals (not by averaging the
+// per-account rates, which would weight a 10-token account the same as a 10M one).
+func rollupCacheHitRateByClientType(rows []*OpsCacheHitRateRow) []*OpsCacheHitRateRow {
+	order := []OpsCacheClientType{OpsCacheClientClaudeCode, OpsCacheClientThirdParty, OpsCacheClientUnknown}
+	agg := make(map[OpsCacheClientType]*OpsCacheHitRateRow, len(order))
+
+	for _, row := range rows {
+		if row == nil {
+			continue
+		}
+		acc := agg[row.ClientType]
+		if acc == nil {
+			acc = &OpsCacheHitRateRow{ClientType: row.ClientType}
+			agg[row.ClientType] = acc
+		}
+		acc.RequestCount += row.RequestCount
+		acc.InputTokens += row.InputTokens
+		acc.CacheReadTokens += row.CacheReadTokens
+		acc.CacheCreationTokens += row.CacheCreationTokens
+	}
+
+	out := make([]*OpsCacheHitRateRow, 0, len(agg))
+	for _, ct := range order {
+		acc := agg[ct]
+		if acc == nil {
+			continue
+		}
+		denom := float64(acc.InputTokens + acc.CacheReadTokens + acc.CacheCreationTokens)
+		if denom > 0 {
+			acc.HitRate = math.Round(float64(acc.CacheReadTokens)/denom*10000) / 10000
+		}
+		out = append(out, acc)
+	}
+	return out
 }
 
 func (s *OpsService) resolveOpsQueryMode(ctx context.Context, requested OpsQueryMode) OpsQueryMode {
