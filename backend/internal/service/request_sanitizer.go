@@ -14,6 +14,7 @@ var maxOutputTokensByModel = map[string]int{
 	"claude-opus-4-6-20260205":   128000,
 	"claude-opus-4-7":            128000,
 	"claude-opus-4-7-20260620":   128000,
+	"claude-opus-4-8":            128000,
 	"claude-sonnet-4-6":          128000,
 	"claude-sonnet-4-6-20260529": 128000,
 	"claude-sonnet-4-5":          16384,
@@ -189,9 +190,12 @@ func fixToolResultImageMediaTypes(body []byte) []byte {
 	return body
 }
 
-// fixImageURLToImage rewrites "type":"image_url" to "type":"image" in all
-// content blocks (messages and tool_result nested content).
-// Claude API expects "image" type, but OpenAI-style clients send "image_url".
+// fixImageURLToImage converts OpenAI-style image_url blocks to Claude image blocks.
+//
+// OpenAI format:  {"type":"image_url","image_url":{"url":"data:image/png;base64,..."}}
+// Claude format:  {"type":"image","source":{"type":"base64","media_type":"image/png","data":"..."}}
+//
+// Handles both direct message content and nested tool_result content.
 func fixImageURLToImage(body []byte) []byte {
 	messages := gjson.GetBytes(body, "messages")
 	if !messages.IsArray() {
@@ -207,24 +211,18 @@ func fixImageURLToImage(body []byte) []byte {
 		blockIdx := 0
 		content.ForEach(func(_, block gjson.Result) bool {
 			blockType := block.Get("type").String()
-			// Direct image_url block in message content
 			if blockType == "image_url" {
-				path := fmt.Sprintf("messages.%d.content.%d.type", msgIdx, blockIdx)
-				if updated, err := sjson.SetBytes(body, path, "image"); err == nil {
-					body = updated
-				}
+				basePath := fmt.Sprintf("messages.%d.content.%d", msgIdx, blockIdx)
+				body = convertImageURLBlock(body, basePath, block)
 			}
-			// Nested content inside tool_result
 			if blockType == "tool_result" {
 				nested := block.Get("content")
 				if nested.IsArray() {
 					nestedIdx := 0
 					nested.ForEach(func(_, n gjson.Result) bool {
 						if n.Get("type").String() == "image_url" {
-							path := fmt.Sprintf("messages.%d.content.%d.content.%d.type", msgIdx, blockIdx, nestedIdx)
-							if updated, err := sjson.SetBytes(body, path, "image"); err == nil {
-								body = updated
-							}
+							basePath := fmt.Sprintf("messages.%d.content.%d.content.%d", msgIdx, blockIdx, nestedIdx)
+							body = convertImageURLBlock(body, basePath, n)
 						}
 						nestedIdx++
 						return true
@@ -240,22 +238,86 @@ func fixImageURLToImage(body []byte) []byte {
 	return body
 }
 
+// convertImageURLBlock converts a single image_url block to Claude image format.
+// Handles both data URI and plain URL formats.
+func convertImageURLBlock(body []byte, basePath string, block gjson.Result) []byte {
+	// Extract URL from either {"image_url":{"url":"..."}} or {"image_url":"..."}
+	imageURL := block.Get("image_url.url").String()
+	if imageURL == "" {
+		imageURL = block.Get("image_url").String()
+	}
+	if imageURL == "" {
+		// No URL found, just fix the type
+		if updated, err := sjson.SetBytes(body, basePath+".type", "image"); err == nil {
+			body = updated
+		}
+		return body
+	}
+
+	// Parse data URI: data:<media_type>;base64,<data>
+	if strings.HasPrefix(imageURL, "data:") {
+		rest := strings.TrimPrefix(imageURL, "data:")
+		semiIdx := strings.Index(rest, ";")
+		if semiIdx > 0 {
+			mediaType := rest[:semiIdx]
+			rest = rest[semiIdx+1:]
+			if strings.HasPrefix(rest, "base64,") {
+				data := strings.TrimPrefix(rest, "base64,")
+
+				// Detect actual media type from content
+				if actual := apicompat.DetectImageMediaType(data); actual != "" {
+					mediaType = actual
+				}
+
+				// Rewrite block: set type, source, remove image_url
+				if updated, err := sjson.SetBytes(body, basePath+".type", "image"); err == nil {
+					body = updated
+				}
+				source := map[string]string{
+					"type":       "base64",
+					"media_type": mediaType,
+					"data":       data,
+				}
+				if updated, err := sjson.SetBytes(body, basePath+".source", source); err == nil {
+					body = updated
+				}
+				if updated, err := sjson.DeleteBytes(body, basePath+".image_url"); err == nil {
+					body = updated
+				}
+				return body
+			}
+		}
+	}
+
+	// URL format (not data URI) — convert to URL source
+	if updated, err := sjson.SetBytes(body, basePath+".type", "image"); err == nil {
+		body = updated
+	}
+	source := map[string]string{
+		"type": "url",
+		"url":  imageURL,
+	}
+	if updated, err := sjson.SetBytes(body, basePath+".source", source); err == nil {
+		body = updated
+	}
+	if updated, err := sjson.DeleteBytes(body, basePath+".image_url"); err == nil {
+		body = updated
+	}
+	return body
+}
+
 // stripThinkingIncompatibleParams removes parameters that are forbidden
-// when thinking is enabled: top_k and top_p.
-// Claude API: "top_k/top_p must be unset when thinking is enabled"
+// when thinking is enabled: temperature, top_k, and top_p.
 func stripThinkingIncompatibleParams(body []byte) []byte {
 	thinkingType := gjson.GetBytes(body, "thinking.type").String()
 	if thinkingType != "enabled" && thinkingType != "adaptive" {
 		return body
 	}
-	if gjson.GetBytes(body, "top_k").Exists() {
-		if updated, err := sjson.DeleteBytes(body, "top_k"); err == nil {
-			body = updated
-		}
-	}
-	if gjson.GetBytes(body, "top_p").Exists() {
-		if updated, err := sjson.DeleteBytes(body, "top_p"); err == nil {
-			body = updated
+	for _, param := range []string{"temperature", "top_k", "top_p"} {
+		if gjson.GetBytes(body, param).Exists() {
+			if updated, err := sjson.DeleteBytes(body, param); err == nil {
+				body = updated
+			}
 		}
 	}
 	return body

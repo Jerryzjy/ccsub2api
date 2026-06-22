@@ -10,11 +10,12 @@ import (
 // noPrefillModels lists models that do NOT support assistant prefill.
 // When new models are released without prefill support, add them here.
 var noPrefillModels = map[string]bool{
-	"claude-opus-4-6":          true,
-	"claude-opus-4-6-20260205": true,
-	"claude-opus-4-7":          true,
-	"claude-opus-4-7-20260620": true,
-	"claude-sonnet-4-6":        true,
+	"claude-opus-4-6":            true,
+	"claude-opus-4-6-20260205":   true,
+	"claude-opus-4-7":            true,
+	"claude-opus-4-7-20260620":   true,
+	"claude-opus-4-8":            true,
+	"claude-sonnet-4-6":          true,
 	"claude-sonnet-4-6-20260529": true,
 }
 
