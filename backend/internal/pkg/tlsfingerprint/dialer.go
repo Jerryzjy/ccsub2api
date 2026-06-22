@@ -25,7 +25,7 @@ type Profile struct {
 	PointFormats        []uint16
 	EnableGREASE        bool
 	SignatureAlgorithms []uint16 // Empty uses defaultSignatureAlgorithms
-	ALPNProtocols       []string // Empty uses ["h2", "http/1.1"] (matches Node.js 24.x)
+	ALPNProtocols       []string // Empty uses ["http/1.1"] (utls path cannot use h2 with Go HTTP/1.1 Transport)
 	SupportedVersions   []uint16 // Empty uses [TLS1.3, TLS1.2]
 	KeyShareGroups      []uint16 // Empty uses [X25519]
 	PSKModes            []uint16 // Empty uses [psk_dhe_ke]
@@ -358,7 +358,9 @@ func buildClientHelloSpecFromProfile(profile *Profile) *utls.ClientHelloSpec {
 		}
 	}
 
-	alpnProtocols := []string{"h2", "http/1.1"}
+	// ALPN 必须只声明 http/1.1：utls 自定义 DialTLS 与 Go 原生 HTTP/2 实现不兼容，
+	// 如果声明支持 h2，服务器会用 HTTP/2 帧回应，但 HTTP/1.1 Transport 无法解析。
+	alpnProtocols := []string{"http/1.1"}
 	if profile != nil && len(profile.ALPNProtocols) > 0 {
 		alpnProtocols = profile.ALPNProtocols
 	}
