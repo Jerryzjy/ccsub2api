@@ -1438,7 +1438,7 @@ func (s *RateLimitService) handle529(ctx context.Context, account *Account) {
 	if settings == nil {
 		cooldown := s.cfg.RateLimit.OverloadCooldownMinutes
 		if cooldown <= 0 {
-			cooldown = 10
+			cooldown = 1
 		}
 		settings = &OverloadCooldownSettings{Enabled: true, CooldownMinutes: cooldown}
 	}
@@ -1448,9 +1448,11 @@ func (s *RateLimitService) handle529(ctx context.Context, account *Account) {
 		return
 	}
 
+	// 529 是上游服务级过载，与具体账号无关。
+	// 使用短暂冷却（默认 1 分钟而非 10 分钟），避免所有账号同时被长时间标记为不可调度。
 	cooldownMinutes := settings.CooldownMinutes
 	if cooldownMinutes <= 0 {
-		cooldownMinutes = 10
+		cooldownMinutes = 1
 	}
 
 	until := time.Now().Add(time.Duration(cooldownMinutes) * time.Minute)
