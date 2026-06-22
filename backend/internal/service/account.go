@@ -2361,10 +2361,25 @@ func (a *Account) CheckRPMSchedulability(currentRPM int) WindowCostSchedulabilit
 }
 
 // CheckWindowCostSchedulability 根据当前窗口费用检查调度状态
-// - 费用 < 阈值: WindowCostSchedulable（可正常调度）
-// - 费用 >= 阈值 且 < 阈值+预留: WindowCostStickyOnly（仅粘性会话）
-// - 费用 >= 阈值+预留: WindowCostNotSchedulable（不可调度）
+// 优先使用 Anthropic 返回的 utilization 比例（更精准，自适应不同等级），
+// 回退到固定美元额度方式。
+//
+// utilization 模式（window_utilization_limit > 0 时启用）:
+//   - utilization < limit: WindowCostSchedulable
+//   - utilization >= limit 且 < limit+reserve: WindowCostStickyOnly
+//   - utilization >= limit+reserve: WindowCostNotSchedulable
+//
+// 固定额度模式（window_cost_limit > 0 时启用）:
+//   - 费用 < 阈值: WindowCostSchedulable
+//   - 费用 >= 阈值 且 < 阈值+预留: WindowCostStickyOnly
+//   - 费用 >= 阈值+预留: WindowCostNotSchedulable
 func (a *Account) CheckWindowCostSchedulability(currentWindowCost float64) WindowCostSchedulability {
+	// 优先使用 utilization 比例模式
+	if result := a.checkUtilizationSchedulability(); result >= 0 {
+		return WindowCostSchedulability(result)
+	}
+
+	// 回退到固定额度模式
 	limit := a.GetWindowCostLimit()
 	if limit <= 0 {
 		return WindowCostSchedulable
@@ -2380,6 +2395,40 @@ func (a *Account) CheckWindowCostSchedulability(currentWindowCost float64) Windo
 	}
 
 	return WindowCostNotSchedulable
+}
+
+// checkUtilizationSchedulability 基于 Anthropic 返回的 5h utilization 比例判断调度状态。
+// 返回 -1 表示未启用（回退到固定额度模式）。
+func (a *Account) checkUtilizationSchedulability() int {
+	if a.Extra == nil {
+		return -1
+	}
+
+	// 读取比例阈值配置（0~1.0，如 0.8 = 80%）
+	limitRatio := parseExtraFloat64(a.Extra["window_utilization_limit"])
+	if limitRatio <= 0 {
+		return -1 // 未启用
+	}
+
+	// 读取 Anthropic 返回的实时 utilization
+	currentUtil := parseExtraFloat64(a.Extra["session_window_utilization"])
+	if currentUtil < 0 {
+		currentUtil = 0
+	}
+
+	// 预留比例（默认 0.1 = 10%）
+	reserveRatio := parseExtraFloat64(a.Extra["window_utilization_reserve"])
+	if reserveRatio <= 0 {
+		reserveRatio = 0.1
+	}
+
+	if currentUtil < limitRatio {
+		return int(WindowCostSchedulable)
+	}
+	if currentUtil < limitRatio+reserveRatio {
+		return int(WindowCostStickyOnly)
+	}
+	return int(WindowCostNotSchedulable)
 }
 
 // GetCurrentWindowStartTime 获取当前有效的窗口开始时间
