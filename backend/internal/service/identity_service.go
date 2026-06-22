@@ -72,9 +72,24 @@ func NewIdentityService(cache IdentityCache) *IdentityService {
 	return &IdentityService{cache: cache}
 }
 
+// accountRepo is an optional reference for persisting device_id to the database.
+// Set via SetAccountRepo after construction (avoids circular dependency in wire).
+var identityAccountRepo interface {
+	GetExtra(ctx context.Context, id int64) (map[string]any, error)
+	UpdateExtra(ctx context.Context, id int64, updates map[string]any) error
+}
+
+// SetIdentityAccountRepo sets the account repo for device_id persistence.
+func SetIdentityAccountRepo(repo interface {
+	GetExtra(ctx context.Context, id int64) (map[string]any, error)
+	UpdateExtra(ctx context.Context, id int64, updates map[string]any) error
+}) {
+	identityAccountRepo = repo
+}
+
 // GetOrCreateFingerprint 获取或创建账号的指纹
-// 如果缓存存在，检测user-agent版本，新版本则更新
-// 如果缓存不存在，生成随机ClientID并从请求头创建指纹，然后缓存
+// device_id (ClientID) 持久化策略：Redis 缓存（7天TTL） + 数据库备份（永久）。
+// Redis 丢失时从数据库恢复，确保同一账号的 device_id 永不变化。
 func (s *IdentityService) GetOrCreateFingerprint(ctx context.Context, accountID int64, headers http.Header) (*Fingerprint, error) {
 	// 尝试从缓存获取指纹
 	cached, err := s.cache.GetFingerprint(ctx, accountID)
@@ -104,10 +119,38 @@ func (s *IdentityService) GetOrCreateFingerprint(ctx context.Context, accountID 
 	}
 
 	// 缓存不存在或解析失败，创建新指纹
-	fp := s.createFingerprintFromHeaders(headers)
+	// 首次创建时使用默认 device profile（不从客户端 header 读取 OS/Arch），
+	// 确保同一账号的设备指纹恒定，不随不同用户的 header 漂移。
+	fp := &Fingerprint{
+		UserAgent:               defaultFingerprint.UserAgent,
+		StainlessLang:           defaultFingerprint.StainlessLang,
+		StainlessPackageVersion: defaultFingerprint.StainlessPackageVersion,
+		StainlessOS:             defaultFingerprint.StainlessOS,
+		StainlessArch:           defaultFingerprint.StainlessArch,
+		StainlessRuntime:        defaultFingerprint.StainlessRuntime,
+		StainlessRuntimeVersion: defaultFingerprint.StainlessRuntimeVersion,
+	}
 
-	// 生成随机ClientID
-	fp.ClientID = generateClientID()
+	// device_id 恢复策略：优先从数据库读取已持久化的 device_id，
+	// 避免 Redis 重启后所有账号的 device_id 变化（被风控判定为新设备）。
+	restored := false
+	if identityAccountRepo != nil {
+		if extra, err := identityAccountRepo.GetExtra(ctx, accountID); err == nil && extra != nil {
+			if did, ok := extra["device_id"].(string); ok && len(did) == 64 {
+				fp.ClientID = did
+				restored = true
+			}
+		}
+	}
+	if !restored {
+		fp.ClientID = generateClientID()
+		// 持久化到数据库（永久存储，不依赖 Redis TTL）
+		if identityAccountRepo != nil {
+			_ = identityAccountRepo.UpdateExtra(ctx, accountID, map[string]any{
+				"device_id": fp.ClientID,
+			})
+		}
+	}
 	fp.UpdatedAt = time.Now().Unix()
 
 	// 保存到缓存（7天TTL，每24小时自动续期）
@@ -141,22 +184,19 @@ func (s *IdentityService) createFingerprintFromHeaders(headers http.Header) *Fin
 	return fp
 }
 
-// mergeHeadersIntoFingerprint 将请求头中实际存在的字段合并到现有指纹中（用于版本升级场景）
-// 关键语义：请求中有的字段 → 用新值覆盖；缺失的头 → 保留缓存中的已有值
-// 与 createFingerprintFromHeaders 的区别：后者用于首次创建，缺失头回退到 defaultFingerprint；
-// 本函数用于升级更新，缺失头保留缓存值，避免将已知的真实值退化为硬编码默认值
+// mergeHeadersIntoFingerprint 将版本相关字段从请求头合并到现有指纹中。
+// 只更新 User-Agent 和 Package-Version（版本相关），
+// 不更新 OS/Arch/Runtime（设备特征），确保同一账号的设备指纹恒定。
 func mergeHeadersIntoFingerprint(fp *Fingerprint, headers http.Header) {
-	// User-Agent：版本升级的触发条件，一定存在
 	if ua := headers.Get("User-Agent"); ua != "" {
 		fp.UserAgent = ua
 	}
-	// X-Stainless-* 头：仅在请求中实际携带时才更新，否则保留缓存值
 	mergeHeader(headers, "X-Stainless-Lang", &fp.StainlessLang)
 	mergeHeader(headers, "X-Stainless-Package-Version", &fp.StainlessPackageVersion)
-	mergeHeader(headers, "X-Stainless-OS", &fp.StainlessOS)
-	mergeHeader(headers, "X-Stainless-Arch", &fp.StainlessArch)
-	mergeHeader(headers, "X-Stainless-Runtime", &fp.StainlessRuntime)
-	mergeHeader(headers, "X-Stainless-Runtime-Version", &fp.StainlessRuntimeVersion)
+	// 注意：不更新 OS/Arch/Runtime/RuntimeVersion
+	// 真实设备的这些值永远不变（Mac 不会突然变成 Linux）。
+	// 如果从客户端 header 更新，不同用户会导致同一账号的设备特征漂移，
+	// 暴露"多人共享一个账号"的事实。
 }
 
 // mergeHeader 如果请求头中存在该字段则更新目标值，否则保留原值
