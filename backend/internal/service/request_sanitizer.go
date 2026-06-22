@@ -29,6 +29,8 @@ func sanitizeRequestParams(body []byte, modelID string) []byte {
 	body = fixToolTypeFunction(body)
 	body = stripUnsupportedServerTools(body, modelID)
 	body = fixToolResultImageMediaTypes(body)
+	body = fixImageURLToImage(body)
+	body = stripThinkingIncompatibleParams(body)
 	return body
 }
 
@@ -184,5 +186,77 @@ func fixToolResultImageMediaTypes(body []byte) []byte {
 		msgIdx++
 		return true
 	})
+	return body
+}
+
+// fixImageURLToImage rewrites "type":"image_url" to "type":"image" in all
+// content blocks (messages and tool_result nested content).
+// Claude API expects "image" type, but OpenAI-style clients send "image_url".
+func fixImageURLToImage(body []byte) []byte {
+	messages := gjson.GetBytes(body, "messages")
+	if !messages.IsArray() {
+		return body
+	}
+	msgIdx := 0
+	messages.ForEach(func(_, msg gjson.Result) bool {
+		content := msg.Get("content")
+		if !content.IsArray() {
+			msgIdx++
+			return true
+		}
+		blockIdx := 0
+		content.ForEach(func(_, block gjson.Result) bool {
+			blockType := block.Get("type").String()
+			// Direct image_url block in message content
+			if blockType == "image_url" {
+				path := fmt.Sprintf("messages.%d.content.%d.type", msgIdx, blockIdx)
+				if updated, err := sjson.SetBytes(body, path, "image"); err == nil {
+					body = updated
+				}
+			}
+			// Nested content inside tool_result
+			if blockType == "tool_result" {
+				nested := block.Get("content")
+				if nested.IsArray() {
+					nestedIdx := 0
+					nested.ForEach(func(_, n gjson.Result) bool {
+						if n.Get("type").String() == "image_url" {
+							path := fmt.Sprintf("messages.%d.content.%d.content.%d.type", msgIdx, blockIdx, nestedIdx)
+							if updated, err := sjson.SetBytes(body, path, "image"); err == nil {
+								body = updated
+							}
+						}
+						nestedIdx++
+						return true
+					})
+				}
+			}
+			blockIdx++
+			return true
+		})
+		msgIdx++
+		return true
+	})
+	return body
+}
+
+// stripThinkingIncompatibleParams removes parameters that are forbidden
+// when thinking is enabled: top_k and top_p.
+// Claude API: "top_k/top_p must be unset when thinking is enabled"
+func stripThinkingIncompatibleParams(body []byte) []byte {
+	thinkingType := gjson.GetBytes(body, "thinking.type").String()
+	if thinkingType != "enabled" && thinkingType != "adaptive" {
+		return body
+	}
+	if gjson.GetBytes(body, "top_k").Exists() {
+		if updated, err := sjson.DeleteBytes(body, "top_k"); err == nil {
+			body = updated
+		}
+	}
+	if gjson.GetBytes(body, "top_p").Exists() {
+		if updated, err := sjson.DeleteBytes(body, "top_p"); err == nil {
+			body = updated
+		}
+	}
 	return body
 }
