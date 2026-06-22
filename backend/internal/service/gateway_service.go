@@ -3197,16 +3197,53 @@ func sameLastUsedAt(a, b *time.Time) bool {
 }
 
 // sortCandidatesForFallback 根据配置选择排序策略
-// mode: "last_used"(按最后使用时间) 或 "random"(随机)
+// mode: "last_used"(按最后使用时间) 或 "random"(随机) 或 "earliest_reset"(优先最快重置)
 func (s *GatewayService) sortCandidatesForFallback(accounts []*Account, preferOAuth bool, mode string) {
-	if mode == "random" {
+	switch mode {
+	case "random":
 		// 先按优先级排序，然后在同优先级内随机打乱
 		sortAccountsByPriorityOnly(accounts, preferOAuth)
 		shuffleWithinPriority(accounts)
-	} else {
+	case "earliest_reset":
+		// 优先选择限流重置时间最早的账号（即将恢复的优先选）
+		sortAccountsByEarliestReset(accounts, preferOAuth)
+	default:
 		// 默认按最后使用时间排序
 		sortAccountsByPriorityAndLastUsed(accounts, preferOAuth)
 	}
+}
+
+// sortAccountsByEarliestReset 按限流重置时间排序，最早恢复的排前面。
+// 未被限流的账号优先于被限流的，被限流的按重置时间升序。
+func sortAccountsByEarliestReset(accounts []*Account, preferOAuth bool) {
+	now := time.Now()
+	sort.SliceStable(accounts, func(i, j int) bool {
+		a, b := accounts[i], accounts[j]
+		if a.Priority != b.Priority {
+			return a.Priority < b.Priority
+		}
+		if preferOAuth && a.Type != b.Type {
+			return a.Type == AccountTypeOAuth
+		}
+		aOverloaded := a.OverloadUntil != nil && a.OverloadUntil.After(now)
+		bOverloaded := b.OverloadUntil != nil && b.OverloadUntil.After(now)
+		if aOverloaded != bOverloaded {
+			return !aOverloaded // 未过载的排前面
+		}
+		if aOverloaded && bOverloaded {
+			return a.OverloadUntil.Before(*b.OverloadUntil) // 更早恢复的排前面
+		}
+		// 都未过载时按 LRU
+		switch {
+		case a.LastUsedAt == nil && b.LastUsedAt != nil:
+			return true
+		case a.LastUsedAt != nil && b.LastUsedAt == nil:
+			return false
+		case a.LastUsedAt != nil && b.LastUsedAt != nil:
+			return a.LastUsedAt.Before(*b.LastUsedAt)
+		}
+		return false
+	})
 }
 
 // sortAccountsByPriorityOnly 仅按优先级排序
