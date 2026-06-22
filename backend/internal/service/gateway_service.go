@@ -1488,13 +1488,9 @@ func (s *GatewayService) applyClaudeCodeOAuthMimicryToBody(
 	//      上打断点；mapping 存入 gin.Context 供响应侧 bytes.Replace 还原。
 	body = s.rewriteMessageCacheControlIfEnabled(ctx, body)
 
-	if rw := buildToolNameRewriteFromBody(body); rw != nil {
-		body = applyToolNameRewriteToBody(body, rw)
-		if c != nil {
-			c.Set(toolNameRewriteKey, rw)
-		}
-	} else {
-		body = applyToolsLastCacheBreakpoint(body)
+	body, rw := applyThirdPartyToolMimicry(body)
+	if rw != nil && c != nil {
+		c.Set(toolNameRewriteKey, rw)
 	}
 
 	return body
@@ -4952,15 +4948,12 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		if err := replaceBody(addMessageCacheBreakpoints(body)); err != nil {
 			return nil, err
 		}
-		if rw := buildToolNameRewriteFromBody(body); rw != nil {
-			if err := replaceBody(applyToolNameRewriteToBody(body, rw)); err != nil {
-				return nil, err
-			}
+		newBody, rw := applyThirdPartyToolMimicry(body)
+		if err := replaceBody(newBody); err != nil {
+			return nil, err
+		}
+		if rw != nil {
 			c.Set(toolNameRewriteKey, rw)
-		} else {
-			if err := replaceBody(applyToolsLastCacheBreakpoint(body)); err != nil {
-				return nil, err
-			}
 		}
 	}
 
@@ -9898,14 +9891,9 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		if err := replaceBody(s.rewriteMessageCacheControlIfEnabled(ctx, body)); err != nil {
 			return err
 		}
-		if rw := buildToolNameRewriteFromBody(body); rw != nil {
-			if err := replaceBody(applyToolNameRewriteToBody(body, rw)); err != nil {
-				return err
-			}
-		} else {
-			if err := replaceBody(applyToolsLastCacheBreakpoint(body)); err != nil {
-				return err
-			}
+		newBody, _ := applyThirdPartyToolMimicry(body)
+		if err := replaceBody(newBody); err != nil {
+			return err
 		}
 	}
 

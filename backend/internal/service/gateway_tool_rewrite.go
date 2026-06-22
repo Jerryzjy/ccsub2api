@@ -115,6 +115,87 @@ func shouldMimicToolName(toolType string) bool {
 	return false
 }
 
+// sortToolsByName 按 tools[*].name 升序稳定重排 $.tools 数组。
+//
+// 为什么：Anthropic 缓存是前缀精确匹配，tools 渲染在前缀位置 0。第三方客户端
+// （opencode 等）跨轮次发送的 tools 顺序经常不稳定，哪怕工具集合完全相同，顺序
+// 一抖动整段前缀签名就变，缓存全部 miss。把顺序规范成确定的字典序后，相同工具集
+// 永远产生相同的前缀字节，缓存才能跨轮命中。
+//
+// 仅用于第三方伪装路径（调用方已在 shouldMimicClaudeCode 分支内）——官方 Claude
+// Code 的 tools 顺序本就稳定，不走这条路径，不会被重排。
+//
+// 必须在 buildToolNameRewriteFromBody 之前调用：动态假名里编码了工具的数组索引
+// （见 buildDynamicToolMap 的 i），假名映射必须基于排序后的顺序生成，否则"同工具
+// 集不同顺序"会产出不同假名字节，反而制造 miss。
+//
+// 稳定性：用 SliceStable + name 作 key；无 name 的元素（理论上不应出现）保持相对
+// 顺序并排在有 name 的之后，保证幂等。tools 不是数组或元素 <2 时 no-op。
+func sortToolsByName(body []byte) []byte {
+	tools := gjson.GetBytes(body, "tools")
+	if !tools.IsArray() {
+		return body
+	}
+	arr := tools.Array()
+	if len(arr) < 2 {
+		return body
+	}
+
+	type toolEntry struct {
+		name string
+		raw  string
+	}
+	entries := make([]toolEntry, len(arr))
+	already := true
+	for i, t := range arr {
+		entries[i] = toolEntry{name: t.Get("name").String(), raw: t.Raw}
+	}
+	sort.SliceStable(entries, func(i, j int) bool {
+		return entries[i].name < entries[j].name
+	})
+	// 若排序后顺序与原始一致，避免无谓的 body 重写（也保证幂等）。
+	for i := range entries {
+		if entries[i].raw != arr[i].Raw {
+			already = false
+			break
+		}
+	}
+	if already {
+		return body
+	}
+
+	parts := make([]string, len(entries))
+	for i, e := range entries {
+		parts[i] = e.raw
+	}
+	newToolsRaw := "[" + strings.Join(parts, ",") + "]"
+	if next, err := sjson.SetRawBytes(body, "tools", []byte(newToolsRaw)); err == nil {
+		return next
+	}
+	return body
+}
+
+// applyThirdPartyToolMimicry 是第三方伪装路径上"tools 规范化 + 工具名混淆 + tools[-1]
+// 缓存断点"的统一封装，替代三个调用点各自裸调 sort/build/apply 的重复代码。
+//
+// 顺序语义（不可调换）：
+//  1. sortToolsByName：先把 tools 顺序规范成字典序（缓存前缀稳定的前提）
+//  2. buildToolNameRewriteFromBody：在排序后的 body 上扫描、生成假名映射
+//  3. applyToolNameRewriteToBody / applyToolsLastCacheBreakpoint：写回假名并打断点
+//
+// 返回改写后的 body 和 ToolNameRewrite（可能为 nil）。调用方负责在 rw != nil 时把它
+// 存进 gin.Context（toolNameRewriteKey）供响应侧还原。
+func applyThirdPartyToolMimicry(body []byte) ([]byte, *ToolNameRewrite) {
+	body = sortToolsByName(body)
+	rw := buildToolNameRewriteFromBody(body)
+	if rw != nil {
+		body = applyToolNameRewriteToBody(body, rw)
+	} else {
+		body = applyToolsLastCacheBreakpoint(body)
+	}
+	return body, rw
+}
+
 // buildToolNameRewriteFromBody 扫描 body 的 tools[*].name，构造 ToolNameRewrite
 // 并返回它。若不需要混淆（tools 数量不足 + 没有匹配静态前缀的工具）返回 nil。
 //
