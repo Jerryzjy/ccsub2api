@@ -5821,6 +5821,20 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 		body = sanitized
 	}
 
+	// 透传路径也需要修正客户端请求中的常见错误
+	reqModel := gjson.GetBytes(body, "model").String()
+	if stripped, err := stripAssistantPrefillIfUnsupported(body, reqModel); err == nil {
+		body = stripped
+	}
+	body = fixImageMediaTypes(body)
+	// thinking 模型不支持 temperature
+	thinkingType := gjson.GetBytes(body, "thinking.type").String()
+	if (thinkingType == "enabled" || thinkingType == "adaptive") && gjson.GetBytes(body, "temperature").Exists() {
+		if next, err := sjson.DeleteBytes(body, "temperature"); err == nil {
+			body = next
+		}
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, nil, err

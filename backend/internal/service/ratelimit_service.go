@@ -333,6 +333,12 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		s.handle529(ctx, account)
 		shouldDisable = false
 	default:
+		// 500 + "Overloaded" 本质上等同于 529，按相同策略处理
+		if statusCode == 500 && strings.Contains(strings.ToLower(upstreamMsg), "overload") {
+			s.handle529(ctx, account)
+			shouldDisable = false
+			break
+		}
 		// 自定义错误码启用时：在列表中的错误码都应该停止调度
 		if customErrorCodesEnabled {
 			msg := "Custom error code triggered"
