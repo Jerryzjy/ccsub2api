@@ -2,7 +2,7 @@
 #
 # Sub2API Installation Script
 # Sub2API 安装脚本
-# Usage: curl -sSL https://raw.githubusercontent.com/Jerryzjy/ccsub2api/main/deploy/install.sh | bash
+# Usage: curl -sSL https://raw.githubusercontent.com/Jerryzjy/ccsub2api/master/deploy/install.sh | bash
 #
 
 set -e

@@ -171,7 +171,7 @@ One-click installation script that downloads pre-built binaries from GitHub Rele
 #### Installation Steps
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Jerryzjy/ccsub2api/main/deploy/install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/Jerryzjy/ccsub2api/master/deploy/install.sh | sudo bash
 ```
 
 The script will:
@@ -221,7 +221,7 @@ sudo journalctl -u sub2api -f
 sudo systemctl restart sub2api
 
 # Uninstall
-curl -sSL https://raw.githubusercontent.com/Jerryzjy/ccsub2api/main/deploy/install.sh | sudo bash -s -- uninstall -y
+curl -sSL https://raw.githubusercontent.com/Jerryzjy/ccsub2api/master/deploy/install.sh | sudo bash -s -- uninstall -y
 ```
 
 ---
@@ -244,7 +244,7 @@ Use the automated deployment script for easy setup:
 mkdir -p sub2api-deploy && cd sub2api-deploy
 
 # Download and run deployment preparation script
-curl -sSL https://raw.githubusercontent.com/Jerryzjy/ccsub2api/main/deploy/docker-deploy.sh | bash
+curl -sSL https://raw.githubusercontent.com/Jerryzjy/ccsub2api/master/deploy/docker-deploy.sh | bash
 
 # Start services
 docker compose up -d

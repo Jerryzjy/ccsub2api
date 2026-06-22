@@ -7019,14 +7019,14 @@ function localText(zh: string, en: string): string {
 
 const paymentGuideHref = computed(() =>
   locale.value.startsWith("zh")
-    ? "https://github.com/Jerryzjy/ccsub2api/blob/main/docs/PAYMENT_CN.md"
-    : "https://github.com/Jerryzjy/ccsub2api/blob/main/docs/PAYMENT.md",
+    ? "https://github.com/Jerryzjy/ccsub2api/blob/master/docs/PAYMENT_CN.md"
+    : "https://github.com/Jerryzjy/ccsub2api/blob/master/docs/PAYMENT.md",
 );
 
 const paymentMethodsHref = computed(() =>
   locale.value.startsWith("zh")
-    ? "https://github.com/Jerryzjy/ccsub2api/blob/main/docs/PAYMENT_CN.md#支持的支付方式"
-    : "https://github.com/Jerryzjy/ccsub2api/blob/main/docs/PAYMENT.md#supported-payment-methods",
+    ? "https://github.com/Jerryzjy/ccsub2api/blob/master/docs/PAYMENT_CN.md#支持的支付方式"
+    : "https://github.com/Jerryzjy/ccsub2api/blob/master/docs/PAYMENT.md#supported-payment-methods",
 );
 
 type SettingsTab =
