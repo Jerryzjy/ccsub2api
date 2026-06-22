@@ -1892,7 +1892,7 @@
           </p>
         </div>
 
-        <!-- Window Cost Limit -->
+        <!-- 5h Window Cost Control -->
         <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
           <div class="mb-3 flex items-center justify-between">
             <div>
@@ -1918,98 +1918,93 @@
             </button>
           </div>
 
-          <div v-if="windowCostEnabled" class="grid grid-cols-2 gap-4">
-            <div>
-              <label class="input-label">{{ t('admin.accounts.quotaControl.windowCost.limit') }}</label>
-              <div class="relative">
-                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">$</span>
-                <input
-                  v-model.number="windowCostLimit"
-                  type="number"
-                  min="0"
-                  step="1"
-                  class="input pl-7"
-                  :placeholder="t('admin.accounts.quotaControl.windowCost.limitPlaceholder')"
-                />
-              </div>
-              <p class="input-hint">{{ t('admin.accounts.quotaControl.windowCost.limitHint') }}</p>
+          <div v-if="windowCostEnabled" class="space-y-4">
+            <!-- Mode selector -->
+            <div class="flex gap-2">
+              <button type="button"
+                @click="windowUtilizationEnabled = true"
+                :class="['rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                  windowUtilizationEnabled
+                    ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300 dark:bg-primary-900/30 dark:text-primary-400 dark:ring-primary-700'
+                    : 'bg-gray-100 text-gray-600 dark:bg-dark-600 dark:text-gray-400']"
+              >Utilization % (Recommended)</button>
+              <button type="button"
+                @click="windowUtilizationEnabled = false"
+                :class="['rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                  !windowUtilizationEnabled
+                    ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300 dark:bg-primary-900/30 dark:text-primary-400 dark:ring-primary-700'
+                    : 'bg-gray-100 text-gray-600 dark:bg-dark-600 dark:text-gray-400']"
+              >Fixed Dollar $</button>
             </div>
-            <div>
-              <label class="input-label">{{ t('admin.accounts.quotaControl.windowCost.stickyReserve') }}</label>
-              <div class="relative">
-                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">$</span>
-                <input
-                  v-model.number="windowCostStickyReserve"
-                  type="number"
-                  min="0"
-                  step="1"
-                  class="input pl-7"
-                  :placeholder="t('admin.accounts.quotaControl.windowCost.stickyReservePlaceholder')"
-                />
-              </div>
-              <p class="input-hint">{{ t('admin.accounts.quotaControl.windowCost.stickyReserveHint') }}</p>
-            </div>
-          </div>
-        </div>
 
-        <!-- Window Utilization Limit (ratio-based, auto-adapts to tier) -->
-        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
-          <div class="mb-3 flex items-center justify-between">
-            <div>
-              <label class="input-label mb-0">5h Utilization Limit (Recommended)</label>
-              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                Use Anthropic's real-time utilization ratio instead of fixed dollar amounts. Auto-adapts to Pro/5x/20x tiers.
-              </p>
+            <!-- Utilization mode -->
+            <div v-if="windowUtilizationEnabled" class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="input-label">Stop new sessions at</label>
+                <div class="relative">
+                  <input
+                    v-model.number="windowUtilizationLimit"
+                    type="number"
+                    min="10"
+                    max="99"
+                    step="1"
+                    class="input pr-8"
+                    placeholder="80"
+                  />
+                  <span class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">%</span>
+                </div>
+                <p class="input-hint">Auto-adapts to Pro/5x/20x tier budgets.</p>
+              </div>
+              <div>
+                <label class="input-label">Sticky reserve</label>
+                <div class="relative">
+                  <input
+                    v-model.number="windowUtilizationReserve"
+                    type="number"
+                    min="1"
+                    max="50"
+                    step="1"
+                    class="input pr-8"
+                    placeholder="10"
+                  />
+                  <span class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">%</span>
+                </div>
+                <p class="input-hint">Existing sessions continue until limit + reserve.</p>
+              </div>
             </div>
-            <button
-              type="button"
-              @click="windowUtilizationEnabled = !windowUtilizationEnabled"
-              :class="[
-                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                windowUtilizationEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-              ]"
-            >
-              <span
-                :class="[
-                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                  windowUtilizationEnabled ? 'translate-x-5' : 'translate-x-0'
-                ]"
-              />
-            </button>
-          </div>
 
-          <div v-if="windowUtilizationEnabled" class="grid grid-cols-2 gap-4">
-            <div>
-              <label class="input-label">Stop new sessions at (%)</label>
-              <div class="relative">
-                <input
-                  v-model.number="windowUtilizationLimit"
-                  type="number"
-                  min="10"
-                  max="100"
-                  step="5"
-                  class="input pr-8"
-                  placeholder="80"
-                />
-                <span class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">%</span>
+            <!-- Fixed dollar mode -->
+            <div v-else class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="input-label">{{ t('admin.accounts.quotaControl.windowCost.limit') }}</label>
+                <div class="relative">
+                  <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">$</span>
+                  <input
+                    v-model.number="windowCostLimit"
+                    type="number"
+                    min="0"
+                    step="1"
+                    class="input pl-7"
+                    :placeholder="t('admin.accounts.quotaControl.windowCost.limitPlaceholder')"
+                  />
+                </div>
+                <p class="input-hint">{{ t('admin.accounts.quotaControl.windowCost.limitHint') }}</p>
               </div>
-              <p class="input-hint">New users won't be assigned to this account above this utilization.</p>
-            </div>
-            <div>
-              <label class="input-label">Sticky reserve (%)</label>
-              <div class="relative">
-                <input
-                  v-model.number="windowUtilizationReserve"
-                  type="number"
-                  min="1"
-                  max="50"
-                  step="5"
-                  class="input pr-8"
-                  placeholder="10"
-                />
-                <span class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">%</span>
+              <div>
+                <label class="input-label">{{ t('admin.accounts.quotaControl.windowCost.stickyReserve') }}</label>
+                <div class="relative">
+                  <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">$</span>
+                  <input
+                    v-model.number="windowCostStickyReserve"
+                    type="number"
+                    min="0"
+                    step="1"
+                    class="input pl-7"
+                    :placeholder="t('admin.accounts.quotaControl.windowCost.stickyReservePlaceholder')"
+                  />
+                </div>
+                <p class="input-hint">{{ t('admin.accounts.quotaControl.windowCost.stickyReserveHint') }}</p>
               </div>
-              <p class="input-hint">Existing sessions continue until limit + reserve.</p>
             </div>
           </div>
         </div>
@@ -3561,6 +3556,7 @@ function loadQuotaControlSettings(account: Account) {
   // Load utilization-based window control from extra
   const extraForUtil = account.extra as Record<string, unknown> | undefined
   if (extraForUtil?.window_utilization_limit != null && Number(extraForUtil.window_utilization_limit) > 0) {
+    windowCostEnabled.value = true
     windowUtilizationEnabled.value = true
     windowUtilizationLimit.value = Math.round(Number(extraForUtil.window_utilization_limit) * 100)
     windowUtilizationReserve.value = Math.round(Number(extraForUtil.window_utilization_reserve || 0.1) * 100)
@@ -4063,20 +4059,23 @@ const handleSubmit = async () => {
       const currentExtra = (updatePayload.extra as Record<string, unknown>) || (props.account.extra as Record<string, unknown>) || {}
       const newExtra: Record<string, unknown> = { ...currentExtra }
 
-      // Window cost limit settings
-      if (windowCostEnabled.value && windowCostLimit.value != null && windowCostLimit.value > 0) {
-        newExtra.window_cost_limit = windowCostLimit.value
-        newExtra.window_cost_sticky_reserve = windowCostStickyReserve.value ?? 10
-      } else {
-        delete newExtra.window_cost_limit
-        delete newExtra.window_cost_sticky_reserve
-      }
-
-      // Window utilization limit settings (ratio-based)
-      if (windowUtilizationEnabled.value && windowUtilizationLimit.value != null && windowUtilizationLimit.value > 0) {
+      // 5h window cost control: utilization mode or fixed dollar mode (mutually exclusive)
+      if (windowCostEnabled.value && windowUtilizationEnabled.value) {
+        // Utilization mode: save ratio, clear fixed dollar
         newExtra.window_utilization_limit = (windowUtilizationLimit.value || 80) / 100
         newExtra.window_utilization_reserve = (windowUtilizationReserve.value || 10) / 100
+        delete newExtra.window_cost_limit
+        delete newExtra.window_cost_sticky_reserve
+      } else if (windowCostEnabled.value && !windowUtilizationEnabled.value) {
+        // Fixed dollar mode: save dollar, clear utilization
+        newExtra.window_cost_limit = windowCostLimit.value
+        newExtra.window_cost_sticky_reserve = windowCostStickyReserve.value ?? 10
+        delete newExtra.window_utilization_limit
+        delete newExtra.window_utilization_reserve
       } else {
+        // Disabled: clear both
+        delete newExtra.window_cost_limit
+        delete newExtra.window_cost_sticky_reserve
         delete newExtra.window_utilization_limit
         delete newExtra.window_utilization_reserve
       }
