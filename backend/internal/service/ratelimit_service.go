@@ -1483,6 +1483,9 @@ func (s *RateLimitService) UpdateSessionWindow(ctx context.Context, account *Acc
 		return
 	}
 
+	// 自动检测 Claude 订阅等级
+	detectAndStoreClaudeTier(ctx, account, headers, s.accountRepo)
+
 	// 检查是否需要初始化时间窗口
 	// 对于 Setup Token 账号，首次成功请求时需要预测时间窗口
 	var windowStart, windowEnd *time.Time
