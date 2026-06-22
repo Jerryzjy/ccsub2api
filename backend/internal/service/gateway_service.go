@@ -5860,6 +5860,7 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 
 	// 透传路径也需要修正客户端请求中的常见错误
 	reqModel := gjson.GetBytes(body, "model").String()
+	body = sanitizeRequestParams(body, reqModel)
 	if stripped, err := stripAssistantPrefillIfUnsupported(body, reqModel); err == nil {
 		body = stripped
 	}
@@ -6814,6 +6815,9 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	finalBetaHeader, finalBetaShouldSet := s.computeFinalAnthropicBeta(
 		tokenType, mimicClaudeCode, modelID, clientHeaders, body, effectiveDropSet,
 	)
+
+	// 请求参数修正：max_tokens 钳位、budget_tokens 最小值、server tools 兼容、tool_result 图片修正
+	body = sanitizeRequestParams(body, modelID)
 
 	// 能力维度 body sanitize：与最终 anthropic-beta header 对称
 	if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(body, finalBetaHeader); changed {
