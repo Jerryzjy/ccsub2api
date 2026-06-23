@@ -336,6 +336,15 @@ func applyToolNameRewriteToBody(body []byte, rw *ToolNameRewrite) []byte {
 //   - 否则注入 {"type":"ephemeral","ttl": claude.DefaultCacheControlTTL}
 //
 // 纯副作用函数，tools 不存在或为空数组时 no-op。
+//
+// defer_loading 规避：Claude Code (v2.1.69+) 会在工具上发送
+// custom.defer_loading=true。Anthropic 接受该字段，但明确禁止"同一工具同时带
+// defer_loading 和 cache_control"（invalid_request_error）。因此断点不能盲目打在
+// tools[-1]：必须从后往前跳过所有 defer_loading=true 的工具，落在最后一个可缓存
+// 工具上；若全部工具都 defer_loading 则不打断点。
+//
+// 这个约束本来就存在，但工具排序（sortToolsByName）会改变末位工具，更容易把一个
+// defer_loading 工具排到 tools[-1]，从而暴露此冲突——故一并在此规避。
 func applyToolsLastCacheBreakpoint(body []byte) []byte {
 	tools := gjson.GetBytes(body, "tools")
 	if !tools.IsArray() {
@@ -345,7 +354,21 @@ func applyToolsLastCacheBreakpoint(body []byte) []byte {
 	if len(arr) == 0 {
 		return body
 	}
-	lastIdx := len(arr) - 1
+
+	// 从后往前找最后一个不带 defer_loading=true 的工具作为断点位置。
+	lastIdx := -1
+	for i := len(arr) - 1; i >= 0; i-- {
+		if arr[i].Get("custom.defer_loading").Bool() {
+			continue
+		}
+		lastIdx = i
+		break
+	}
+	if lastIdx < 0 {
+		// 所有工具都 defer_loading：无处可打断点，直接返回。
+		return body
+	}
+
 	existingCC := arr[lastIdx].Get("cache_control")
 
 	if existingCC.Exists() && existingCC.Get("ttl").String() != "" {

@@ -97,3 +97,36 @@ func TestApplyThirdPartyToolMimicry_BreakpointOnSortedLast(t *testing.T) {
 	require.Equal(t, "ephemeral", gjson.GetBytes(got, `tools.1.cache_control.type`).String())
 	require.False(t, gjson.GetBytes(got, `tools.0.cache_control`).Exists())
 }
+
+// Regression: a tool carrying custom.defer_loading=true must NEVER receive a
+// cache_control breakpoint (Anthropic rejects the combination). After sorting,
+// "write" sorts last but is defer_loading, so the breakpoint must fall back to
+// the previous cacheable tool ("bash").
+func TestApplyToolsLastCacheBreakpoint_SkipsDeferLoading(t *testing.T) {
+	body := []byte(`{"tools":[{"name":"bash"},{"name":"write","custom":{"defer_loading":true}}]}`)
+	got := applyToolsLastCacheBreakpoint(body)
+	require.False(t, gjson.GetBytes(got, `tools.1.cache_control`).Exists(),
+		"defer_loading tool must not get cache_control")
+	require.Equal(t, "ephemeral", gjson.GetBytes(got, `tools.0.cache_control.type`).String(),
+		"breakpoint must fall back to the last cacheable tool")
+}
+
+// When every tool is defer_loading there is no valid breakpoint target, so the
+// body must be returned untouched (no cache_control anywhere).
+func TestApplyToolsLastCacheBreakpoint_AllDeferLoadingNoOp(t *testing.T) {
+	body := []byte(`{"tools":[{"name":"a","custom":{"defer_loading":true}},{"name":"b","custom":{"defer_loading":true}}]}`)
+	got := applyToolsLastCacheBreakpoint(body)
+	require.False(t, gjson.GetBytes(got, `tools.0.cache_control`).Exists())
+	require.False(t, gjson.GetBytes(got, `tools.1.cache_control`).Exists())
+}
+
+// End-to-end through the third-party path: a defer_loading tool sorted last
+// must not produce the invalid defer_loading + cache_control combination.
+func TestApplyThirdPartyToolMimicry_DeferLoadingSortedLast(t *testing.T) {
+	body := []byte(`{"tools":[{"name":"bash"},{"name":"zebra","custom":{"defer_loading":true}}]}`)
+	got, _ := applyThirdPartyToolMimicry(body)
+	// "zebra" sorts after "bash" -> last, but is defer_loading
+	require.Equal(t, []string{"bash", "zebra"}, toolNames(got))
+	require.False(t, gjson.GetBytes(got, `tools.1.cache_control`).Exists())
+	require.Equal(t, "ephemeral", gjson.GetBytes(got, `tools.0.cache_control.type`).String())
+}
