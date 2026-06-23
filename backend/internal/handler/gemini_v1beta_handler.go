@@ -203,7 +203,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	subscription, _ := middleware.GetSubscriptionFromContext(c)
 
 	// For Gemini native API, do not send Claude-style ping frames.
-	geminiConcurrency := NewConcurrencyHelper(h.concurrencyHelper.concurrencyService, SSEPingFormatNone, 0)
+	geminiConcurrency := NewConcurrencyHelper(h.concurrencyHelper.concurrencyService, SSEPingFormatNone, 0, h.concurrencyHelper.userWaitTimeout)
 
 	// 1) user concurrency slot
 	streamStarted := false

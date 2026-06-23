@@ -140,17 +140,25 @@ type ConcurrencyHelper struct {
 	concurrencyService *service.ConcurrencyService
 	pingFormat         SSEPingFormat
 	pingInterval       time.Duration
+	// userWaitTimeout 是 user 级并发槽的等待超时；超时仍未拿到槽才返回 429。
+	// <=0 时回退到 maxConcurrencyWait 默认值。account 级超时不受此影响。
+	userWaitTimeout time.Duration
 }
 
-// NewConcurrencyHelper creates a new ConcurrencyHelper
-func NewConcurrencyHelper(concurrencyService *service.ConcurrencyService, pingFormat SSEPingFormat, pingInterval time.Duration) *ConcurrencyHelper {
+// NewConcurrencyHelper creates a new ConcurrencyHelper.
+// userWaitTimeout 控制 user 级并发槽等待超时；传 <=0 回退到 maxConcurrencyWait 默认。
+func NewConcurrencyHelper(concurrencyService *service.ConcurrencyService, pingFormat SSEPingFormat, pingInterval time.Duration, userWaitTimeout time.Duration) *ConcurrencyHelper {
 	if pingInterval <= 0 {
 		pingInterval = defaultPingInterval
+	}
+	if userWaitTimeout <= 0 {
+		userWaitTimeout = maxConcurrencyWait
 	}
 	return &ConcurrencyHelper{
 		concurrencyService: concurrencyService,
 		pingFormat:         pingFormat,
 		pingInterval:       pingInterval,
+		userWaitTimeout:    userWaitTimeout,
 	}
 }
 
@@ -228,7 +236,11 @@ func (h *ConcurrencyHelper) TryAcquireAccountSlot(ctx context.Context, accountID
 // For streaming requests, sends ping events during the wait.
 // streamStarted is updated if streaming response has begun.
 func (h *ConcurrencyHelper) AcquireUserSlotWithWait(c *gin.Context, userID int64, maxConcurrency int, isStream bool, streamStarted *bool) (func(), error) {
-	return h.acquireUserSlotWithWaitTimeout(c, userID, maxConcurrency, maxConcurrencyWait, isStream, streamStarted)
+	timeout := h.userWaitTimeout
+	if timeout <= 0 {
+		timeout = maxConcurrencyWait
+	}
+	return h.acquireUserSlotWithWaitTimeout(c, userID, maxConcurrency, timeout, isStream, streamStarted)
 }
 
 func (h *ConcurrencyHelper) acquireUserSlotWithWaitTimeout(c *gin.Context, userID int64, maxConcurrency int, timeout time.Duration, isStream bool, streamStarted *bool) (func(), error) {

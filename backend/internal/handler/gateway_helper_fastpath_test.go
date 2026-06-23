@@ -99,7 +99,7 @@ func TestConcurrencyHelper_TryAcquireUserSlot(t *testing.T) {
 			return true, nil
 		},
 	}
-	helper := NewConcurrencyHelper(service.NewConcurrencyService(cache), SSEPingFormatNone, time.Second)
+	helper := NewConcurrencyHelper(service.NewConcurrencyService(cache), SSEPingFormatNone, time.Second, 0)
 
 	release, acquired, err := helper.TryAcquireUserSlot(context.Background(), 101, 2)
 	require.NoError(t, err)
@@ -116,7 +116,7 @@ func TestConcurrencyHelper_TryAcquireAccountSlot_NotAcquired(t *testing.T) {
 			return false, nil
 		},
 	}
-	helper := NewConcurrencyHelper(service.NewConcurrencyService(cache), SSEPingFormatNone, time.Second)
+	helper := NewConcurrencyHelper(service.NewConcurrencyService(cache), SSEPingFormatNone, time.Second, 0)
 
 	release, acquired, err := helper.TryAcquireAccountSlot(context.Background(), 201, 1)
 	require.NoError(t, err)

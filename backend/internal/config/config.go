@@ -697,6 +697,9 @@ type GatewayConfig struct {
 	// 请求 token 估算上限（本地近似），超过则提前拦截不转发上游。0=禁用。
 	// 用于保护上游账号健康度，避免必然超限的请求打到上游被拒。
 	MaxEstimatedTokens int64 `mapstructure:"max_estimated_tokens"`
+	// user 级并发槽等待超时（秒），超时仍未拿到槽才返回 429。<=0 用内置默认。默认 120。
+	// 拉长可让突发请求被排队吸收成"稍慢"而非直接 429（流式请求等待期间有 SSE 保活）。
+	UserConcurrencyWaitTimeoutSeconds int `mapstructure:"user_concurrency_wait_timeout_seconds"`
 	// 非流式上游响应体读取上限（字节），用于防止无界读取导致内存放大
 	UpstreamResponseReadMaxBytes int64 `mapstructure:"upstream_response_read_max_bytes"`
 	// 代理探测响应体读取上限（字节）
@@ -1888,6 +1891,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.antigravity_extra_retries", 10)
 	viper.SetDefault("gateway.max_body_size", int64(256*1024*1024))
 	viper.SetDefault("gateway.max_estimated_tokens", int64(1_000_000))
+	viper.SetDefault("gateway.user_concurrency_wait_timeout_seconds", 120)
 	viper.SetDefault("gateway.upstream_response_read_max_bytes", DefaultUpstreamResponseReadMaxBytes)
 	viper.SetDefault("gateway.proxy_probe_response_read_max_bytes", int64(1024*1024))
 	viper.SetDefault("gateway.gemini_debug_response_headers", false)
@@ -2443,6 +2447,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.MaxEstimatedTokens < 0 {
 		return fmt.Errorf("gateway.max_estimated_tokens must be >= 0 (0 disables)")
+	}
+	if c.Gateway.UserConcurrencyWaitTimeoutSeconds < 0 {
+		return fmt.Errorf("gateway.user_concurrency_wait_timeout_seconds must be >= 0 (0 uses default)")
 	}
 	if c.Gateway.UpstreamResponseReadMaxBytes <= 0 {
 		return fmt.Errorf("gateway.upstream_response_read_max_bytes must be positive")

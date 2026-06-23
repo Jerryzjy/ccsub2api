@@ -220,7 +220,7 @@ func TestWaitForSlotWithPingTimeout_AccountAndUserAcquire(t *testing.T) {
 		userSeq:    []bool{false, true},
 	}
 	concurrency := service.NewConcurrencyService(cache)
-	helper := NewConcurrencyHelper(concurrency, SSEPingFormatNone, 5*time.Millisecond)
+	helper := NewConcurrencyHelper(concurrency, SSEPingFormatNone, 5*time.Millisecond, 0)
 
 	t.Run("account_slot_acquired_after_retry", func(t *testing.T) {
 		c, _ := newHelperTestContext(http.MethodPost, "/v1/messages")
@@ -251,7 +251,7 @@ func TestAcquireUserSlotWithWait_ImmediateAcquireSkipsWaitQueue(t *testing.T) {
 		userSeq: []bool{true},
 	}
 	concurrency := service.NewConcurrencyService(cache)
-	helper := NewConcurrencyHelper(concurrency, SSEPingFormatNone, 5*time.Millisecond)
+	helper := NewConcurrencyHelper(concurrency, SSEPingFormatNone, 5*time.Millisecond, 0)
 	c, _ := newHelperTestContext(http.MethodPost, "/v1/messages")
 	streamStarted := false
 
@@ -272,7 +272,7 @@ func TestAcquireUserSlotWithWait_WaitSuccessDecrementsBeforeReturn(t *testing.T)
 		waitAllowed: true,
 	}
 	concurrency := service.NewConcurrencyService(cache)
-	helper := NewConcurrencyHelper(concurrency, SSEPingFormatNone, 5*time.Millisecond)
+	helper := NewConcurrencyHelper(concurrency, SSEPingFormatNone, 5*time.Millisecond, 0)
 	c, _ := newHelperTestContext(http.MethodPost, "/v1/messages")
 	streamStarted := false
 
@@ -295,7 +295,7 @@ func TestAcquireUserSlotWithWait_TimeoutDecrementsWaitQueue(t *testing.T) {
 		waitAllowed: true,
 	}
 	concurrency := service.NewConcurrencyService(cache)
-	helper := NewConcurrencyHelper(concurrency, SSEPingFormatNone, 5*time.Millisecond)
+	helper := NewConcurrencyHelper(concurrency, SSEPingFormatNone, 5*time.Millisecond, 0)
 	c, _ := newHelperTestContext(http.MethodPost, "/v1/messages")
 	streamStarted := false
 
@@ -321,7 +321,7 @@ func TestAcquireUserSlotWithWait_RequestCancelDecrementsWaitQueue(t *testing.T) 
 		},
 	}
 	concurrency := service.NewConcurrencyService(cache)
-	helper := NewConcurrencyHelper(concurrency, SSEPingFormatNone, 5*time.Millisecond)
+	helper := NewConcurrencyHelper(concurrency, SSEPingFormatNone, 5*time.Millisecond, 0)
 	c, _ := newHelperTestContext(http.MethodPost, "/v1/messages")
 	reqCtx, cancelFunc := context.WithCancel(c.Request.Context())
 	cancel = cancelFunc
@@ -345,7 +345,7 @@ func TestWaitForSlotWithPingTimeout_TimeoutAndStreamPing(t *testing.T) {
 	concurrency := service.NewConcurrencyService(cache)
 
 	t.Run("timeout_returns_concurrency_error", func(t *testing.T) {
-		helper := NewConcurrencyHelper(concurrency, SSEPingFormatNone, 5*time.Millisecond)
+		helper := NewConcurrencyHelper(concurrency, SSEPingFormatNone, 5*time.Millisecond, 0)
 		c, _ := newHelperTestContext(http.MethodPost, "/v1/messages")
 		streamStarted := false
 		release, err := helper.waitForSlotWithPingTimeout(c, "account", 101, 2, 130*time.Millisecond, false, &streamStarted, true)
@@ -356,7 +356,7 @@ func TestWaitForSlotWithPingTimeout_TimeoutAndStreamPing(t *testing.T) {
 	})
 
 	t.Run("stream_mode_sends_ping_before_timeout", func(t *testing.T) {
-		helper := NewConcurrencyHelper(concurrency, SSEPingFormatComment, 10*time.Millisecond)
+		helper := NewConcurrencyHelper(concurrency, SSEPingFormatComment, 10*time.Millisecond, 0)
 		c, rec := newHelperTestContext(http.MethodPost, "/v1/messages")
 		streamStarted := false
 		release, err := helper.waitForSlotWithPingTimeout(c, "account", 101, 2, 70*time.Millisecond, true, &streamStarted, true)
@@ -374,7 +374,7 @@ func TestWaitForSlotWithPingTimeout_ParentContextCanceled(t *testing.T) {
 		accountSeq: []bool{false},
 	}
 	concurrency := service.NewConcurrencyService(cache)
-	helper := NewConcurrencyHelper(concurrency, SSEPingFormatNone, 5*time.Millisecond)
+	helper := NewConcurrencyHelper(concurrency, SSEPingFormatNone, 5*time.Millisecond, 0)
 	c, _ := newHelperTestContext(http.MethodPost, "/v1/messages")
 	reqCtx, cancel := context.WithCancel(c.Request.Context())
 	c.Request = c.Request.WithContext(reqCtx)
@@ -393,7 +393,7 @@ func TestWaitForSlotWithPingTimeout_AcquireError(t *testing.T) {
 		err: errors.New("redis unavailable"),
 	}
 	concurrency := service.NewConcurrencyService(errCache)
-	helper := NewConcurrencyHelper(concurrency, SSEPingFormatNone, 5*time.Millisecond)
+	helper := NewConcurrencyHelper(concurrency, SSEPingFormatNone, 5*time.Millisecond, 0)
 	c, _ := newHelperTestContext(http.MethodPost, "/v1/messages")
 	streamStarted := false
 	release, err := helper.waitForSlotWithPingTimeout(c, "account", 1, 1, 200*time.Millisecond, false, &streamStarted, true)
@@ -407,7 +407,7 @@ func TestAcquireAccountSlotWithWaitTimeout_ImmediateAttemptBeforeBackoff(t *test
 		accountSeq: []bool{false},
 	}
 	concurrency := service.NewConcurrencyService(cache)
-	helper := NewConcurrencyHelper(concurrency, SSEPingFormatNone, 5*time.Millisecond)
+	helper := NewConcurrencyHelper(concurrency, SSEPingFormatNone, 5*time.Millisecond, 0)
 	c, _ := newHelperTestContext(http.MethodPost, "/v1/messages")
 	streamStarted := false
 

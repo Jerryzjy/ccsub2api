@@ -180,7 +180,7 @@ func newTestGatewayHandler(t *testing.T, group *service.Group, accounts []*servi
 	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 
 	concurrencySvc := service.NewConcurrencyService(&fakeConcurrencyCache{})
-	concurrencyHelper := NewConcurrencyHelper(concurrencySvc, SSEPingFormatClaude, 0)
+	concurrencyHelper := NewConcurrencyHelper(concurrencySvc, SSEPingFormatClaude, 0, 0)
 
 	h := &GatewayHandler{
 		gatewayService:      gwSvc,
