@@ -195,6 +195,21 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		return
 	}
 
+	// 超长请求本地拦截：在获取并发槽/选账号/转发上游之前，按本地估算的 token 数提前拒绝，
+	// 避免必然超限的请求打到上游影响账号健康度。标记 business_limited 以排除出 SLA/错误率口径。
+	if h.cfg != nil {
+		if limit := h.cfg.Gateway.MaxEstimatedTokens; limit > 0 {
+			if est := estimateAnthropicTokens(body); est > limit {
+				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonRequestTooLong)
+				reqLog.Info("gateway.request_blocked_too_long",
+					zap.Int64("estimated_tokens", est), zap.Int64("limit", limit))
+				h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error",
+					buildEstimatedTooLongMessage(est, limit))
+				return
+			}
+		}
+	}
+
 	if decision := h.checkContentModeration(c, reqLog, apiKey, subject, service.ContentModerationProtocolAnthropicMessages, reqModel, body); decision != nil && decision.Blocked {
 		h.errorResponse(c, contentModerationStatus(decision), contentModerationErrorCode(decision), decision.Message)
 		return

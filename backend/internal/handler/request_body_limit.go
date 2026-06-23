@@ -25,3 +25,7 @@ func formatBodyLimit(limit int64) string {
 func buildBodyTooLargeMessage(limit int64) string {
 	return fmt.Sprintf("Request body too large, limit is %s", formatBodyLimit(limit))
 }
+
+func buildEstimatedTooLongMessage(est, limit int64) string {
+	return fmt.Sprintf("请求内容过长：预计约 %d tokens，已超过上限 %d tokens。请缩短上下文或拆分请求后重试。", est, limit)
+}
