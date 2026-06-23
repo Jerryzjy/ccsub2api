@@ -119,6 +119,10 @@ func NewGatewayHandler(
 // Messages handles Claude API compatible messages endpoint
 // POST /v1/messages
 func (h *GatewayHandler) Messages(c *gin.Context) {
+	// TTFT 可观测性：分段延迟埋点起点。与 OpenAI 路径(openai_gateway_handler.go)
+	// 一致,后续记录 auth/routing/response/TTFT 四段,落到 ops 日志与延迟直方图。
+	requestStart := time.Now()
+
 	// 从context获取apiKey和user（ApiKeyAuth中间件已设置）
 	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
 	if !ok {
@@ -229,6 +233,12 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 
 	// 获取订阅信息（可能为nil）- 提前获取用于后续检查
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
+
+	// TTFT 分段:auth 段结束(转发前预处理:解析/检测/超长拦截/版本检查)。
+	// routingStart 在 failover 循环之外声明,使"只记最终成功那次"的 routing 计时
+	// 能跨重试累计到成功转发为止(见 plan)。
+	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
+	routingStart := time.Now()
 
 	// 1. 首先获取用户并发槽位
 	userReleaseFunc, err := h.concurrencyHelper.AcquireUserSlotWithWait(c, subject.UserID, subject.Concurrency, reqStream, &streamStarted)
@@ -790,6 +800,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			if fs.SwitchCount > 0 {
 				requestCtx = service.WithAccountSwitchCount(requestCtx, fs.SwitchCount, h.metadataBridgeEnabled())
 			}
+			// TTFT 分段:routing 段结束(账号选择/并发槽等待/UMQ/body 改写)。
+			// failover 重试时本行会被多次执行,只有最终成功转发那次的值留在 context。
+			service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
+			forwardStart := time.Now()
 			// 记录 Forward 前已写入字节数，Forward 后若增加则说明 SSE 内容已发，禁止 failover
 			writerSizeBeforeForward := c.Writer.Size()
 			if account.Platform == service.PlatformAntigravity && account.Type != service.AccountTypeAPIKey {
@@ -808,6 +822,20 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()
 			}
+
+			// TTFT 分段:response 段 = 网关侧响应处理耗时(剔除上游耗时,区分网关慢 vs 上游慢);
+			// TTFT 仅在成功流式响应时有值。failover 重试时下一次会覆盖,留下的是最终成功那次。
+			forwardDurationMs := time.Since(forwardStart).Milliseconds()
+			upstreamLatencyMs, _ := getContextInt64(c, service.OpsUpstreamLatencyMsKey)
+			responseLatencyMs := forwardDurationMs
+			if upstreamLatencyMs > 0 && forwardDurationMs > upstreamLatencyMs {
+				responseLatencyMs = forwardDurationMs - upstreamLatencyMs
+			}
+			service.SetOpsLatencyMs(c, service.OpsResponseLatencyMsKey, responseLatencyMs)
+			if err == nil && result != nil && result.FirstTokenMs != nil {
+				service.SetOpsLatencyMs(c, service.OpsTimeToFirstTokenMsKey, int64(*result.FirstTokenMs))
+			}
+
 			if err != nil {
 				// Beta policy block: return 400 immediately, no failover
 				var betaBlockedErr *service.BetaBlockedError
