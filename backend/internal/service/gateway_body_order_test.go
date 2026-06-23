@@ -212,12 +212,26 @@ func TestGatewayCacheTTLGlobalSetting_RequestInjectionScope(t *testing.T) {
 		settingService: NewSettingService(repo, &config.Config{}),
 	}
 
+	// 新行为：订阅（OAuth/SetupToken）账号默认 1h（订阅用量计入套餐、零额外成本，
+	// 利于缓存命中），不再依赖全局开关；API-key 与非 Anthropic 平台不在此列。
 	require.True(t, svc.shouldInjectAnthropicCacheTTL1h(context.Background(), &Account{Platform: PlatformAnthropic, Type: AccountTypeOAuth}))
 	require.True(t, svc.shouldInjectAnthropicCacheTTL1h(context.Background(), &Account{Platform: PlatformAnthropic, Type: AccountTypeSetupToken}))
 	require.False(t, svc.shouldInjectAnthropicCacheTTL1h(context.Background(), &Account{Platform: PlatformAnthropic, Type: AccountTypeAPIKey}))
 	require.False(t, svc.shouldInjectAnthropicCacheTTL1h(context.Background(), &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}))
 
+	// 全局开关关闭不再影响订阅号默认 1h：默认行为与系统级开关解耦。
 	repo.data[SettingKeyEnableAnthropicCacheTTL1hInjection] = "false"
 	gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{})
-	require.False(t, svc.shouldInjectAnthropicCacheTTL1h(context.Background(), &Account{Platform: PlatformAnthropic, Type: AccountTypeOAuth}))
+	require.True(t, svc.shouldInjectAnthropicCacheTTL1h(context.Background(), &Account{Platform: PlatformAnthropic, Type: AccountTypeOAuth}))
+
+	// 唯一的逃生口：账号显式 Override=5m → 强制 5m（对齐真实 CLI 的 FORCE_PROMPT_CACHING_5M）。
+	override5m := &Account{
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeOAuth,
+		Extra: map[string]any{
+			"cache_ttl_override_enabled": true,
+			"cache_ttl_override_target":  cacheTTLTarget5m,
+		},
+	}
+	require.False(t, svc.shouldInjectAnthropicCacheTTL1h(context.Background(), override5m))
 }

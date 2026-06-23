@@ -1681,7 +1681,7 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 // SelectAccountWithLoadAwareness selects account with load-awareness and wait plan.
 // metadataUserID: 用于客户端亲和调度，从中提取客户端 ID
 // sub2apiUserID: 系统用户 ID，用于二维亲和调度
-func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, metadataUserID string, sub2apiUserID int64) (*AccountSelectionResult, error) {
+func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, metadataUserID string, sub2apiUserID int64) (selResult *AccountSelectionResult, selErr error) {
 	// 调试日志：记录调度入口参数
 	excludedIDsList := make([]int64, 0, len(excludedIDs))
 	for id := range excludedIDs {
@@ -1721,6 +1721,19 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			stickyAccountID = accountID
 			stickySource = "cache"
 		}
+	}
+
+	// 切号可观测性：在选号出口比对"上轮绑定账号"与"本轮选中账号"，量化粘性会话
+	// 切号率（缓存按账号隔离，切号 = 整轮 prompt cache miss）。仅观测，不改行为。
+	// 仅统计 sessionHash 非空的请求——无 sessionHash 的请求本就没有粘性语义。
+	if sessionHash != "" {
+		defer func() {
+			selectedAccountID := int64(0)
+			if selResult != nil && selResult.Account != nil {
+				selectedAccountID = selResult.Account.ID
+			}
+			recordStickySwitch(stickyAccountID, selectedAccountID, sessionHash, stickySource)
+		}()
 	}
 
 	// [DEBUG-STICKY] 调度器入口日志
@@ -4837,11 +4850,25 @@ func forceEphemeralCacheControlTTL(body []byte, ttl string) []byte {
 	return out
 }
 
+// shouldInjectAnthropicCacheTTL1h 决定是否往请求体注入 1h cache_control ttl。
+//
+// 默认行为对齐真实 Claude Code：订阅（OAuth/SetupToken）账号自动使用 1h TTL。
+// 订阅用量计入套餐、不按 token 计费，1h 缓存零额外成本，只是让缓存活更久、
+// 命中率更高——所以无需用户手动开任何开关。API-key 账号不在此列（按 token 真
+// 付费，5m 写入更便宜，由调用方按需开启系统级开关）。
+//
+// 逃生口：账号显式把 TTL Override 设为 5m，则强制 5m（对齐真实 CLI 的
+// FORCE_PROMPT_CACHING_5M，用于调试或特殊需求）。
 func (s *GatewayService) shouldInjectAnthropicCacheTTL1h(ctx context.Context, account *Account) bool {
-	if account == nil || !account.IsAnthropicOAuthOrSetupToken() || s == nil || s.settingService == nil {
+	if account == nil || !account.IsAnthropicOAuthOrSetupToken() || s == nil {
 		return false
 	}
-	return s.settingService.IsAnthropicCacheTTL1hInjectionEnabled(ctx)
+	// 显式 Override=5m → 强制 5m，尊重用户的显式选择。
+	if account.IsCacheTTLOverrideEnabled() && account.GetCacheTTLOverrideTarget() == cacheTTLTarget5m {
+		return false
+	}
+	// 订阅账号默认 1h（含显式 Override=1h，以及全局系统级开关开启的情况）。
+	return true
 }
 
 func (s *GatewayService) claudeOAuthSystemPromptInjectionSettings(ctx context.Context) (bool, string, string) {
@@ -6874,6 +6901,10 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	if enableCCH {
 		body = signBillingHeaderCCH(body)
 	}
+
+	// 前缀稳定性探针：body 至此为最终形态，对 tools/system/messages 三段算哈希并打日志，
+	// 用于诊断 prompt cache 命中率（同会话两轮对比即可定位前缀是否被改写污染）。仅观测。
+	logCachePrefixProbe(body, account.ID, "", modelID)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", targetURL, bytes.NewReader(body))
 	if err != nil {
