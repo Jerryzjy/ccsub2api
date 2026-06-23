@@ -97,6 +97,11 @@ type accountWithLoad struct {
 	loadInfo *AccountLoadInfo
 }
 
+// accountRoundRobinCounter 为负载并列档内的轮询选号提供跨请求记忆。
+// 进程内计数器：多实例部署时每实例各自轮询，宏观仍接近均匀。
+// 未来若需严格全局均匀，可替换为 Redis INCR（按 group/platform 维度分桶）。
+var accountRoundRobinCounter atomic.Uint64
+
 var ForceCacheBillingContextKey = forceCacheBillingKeyType{}
 
 var (
@@ -2300,8 +2305,8 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			candidates := filterByMinPriority(available)
 			// 2. 取负载率最低的集合
 			candidates = filterByMinLoadRate(candidates)
-			// 3. LRU 选择最久未用的账号
-			selected := selectByLRU(candidates, preferOAuth)
+			// 3. 在负载并列档内进程内轮询选号（雨露均沾），替代并列随机
+			selected := selectRoundRobin(candidates, preferOAuth)
 			if selected == nil {
 				break
 			}
@@ -3117,6 +3122,42 @@ func selectByLRU(accounts []accountWithLoad, preferOAuth bool) *accountWithLoad 
 	// 5. 随机选择一个
 	selectedIdx := candidateIdxs[mathrand.Intn(len(candidateIdxs))]
 	return &accounts[selectedIdx]
+}
+
+// selectRoundRobin 在"同优先级 + 同最低负载档"的完整候选集合内做进程内轮询选号，
+// 替代 selectByLRU 的并列随机，提供跨请求均衡（雨露均沾）。
+//
+// 注意：与 selectByLRU 不同，这里不再按 LastUsedAt 塌缩到子集——串行流量下
+// 各账号瞬时负载常并列为 0、LastUsedAt 又各异，若先按 LastUsedAt 塌缩会退化为
+// 单账号、轮询永不生效。因此直接在整个负载档内轮询。
+//
+// preferOAuth=true（如 Gemini 平台）时仅在 OAuth 子集内轮询，保持 OAuth 优先不变量。
+func selectRoundRobin(accounts []accountWithLoad, preferOAuth bool) *accountWithLoad {
+	if len(accounts) == 0 {
+		return nil
+	}
+	if len(accounts) == 1 {
+		return &accounts[0]
+	}
+
+	// 构建轮询池下标：preferOAuth 且存在 OAuth 账号时，仅在 OAuth 子集内轮询。
+	pool := make([]int, 0, len(accounts))
+	if preferOAuth {
+		for i := range accounts {
+			if accounts[i].account.Type == AccountTypeOAuth {
+				pool = append(pool, i)
+			}
+		}
+	}
+	if len(pool) == 0 {
+		for i := range accounts {
+			pool = append(pool, i)
+		}
+	}
+
+	idx := accountRoundRobinCounter.Add(1)
+	start := int(idx % uint64(len(pool)))
+	return &accounts[pool[start]]
 }
 
 func sortAccountsByPriorityAndLastUsed(accounts []*Account, preferOAuth bool) {

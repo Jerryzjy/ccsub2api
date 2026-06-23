@@ -262,3 +262,101 @@ func TestLayeredFilterIntegration(t *testing.T) {
 		require.Equal(t, int64(3), selected.account.ID)
 	})
 }
+
+func TestSelectRoundRobin(t *testing.T) {
+	t.Run("empty slice", func(t *testing.T) {
+		accountRoundRobinCounter.Store(0)
+		result := selectRoundRobin(nil, false)
+		require.Nil(t, result)
+	})
+
+	t.Run("single account", func(t *testing.T) {
+		accountRoundRobinCounter.Store(0)
+		accounts := []accountWithLoad{
+			{account: &Account{ID: 1}, loadInfo: &AccountLoadInfo{}},
+		}
+		result := selectRoundRobin(accounts, false)
+		require.NotNil(t, result)
+		require.Equal(t, int64(1), result.account.ID)
+	})
+
+	// 均匀分布：N 个同优先级同负载、LastUsedAt 各异的账号，M 次调用应接近均匀。
+	// 这是修复"串行流量下榨干单账号"的核心断言——LastUsedAt 各异也不应塌缩。
+	t.Run("uniform distribution ignores LastUsedAt", func(t *testing.T) {
+		accountRoundRobinCounter.Store(0)
+		now := time.Now()
+		accounts := make([]accountWithLoad, 0, 5)
+		for i := int64(1); i <= 5; i++ {
+			used := now.Add(-time.Duration(i) * time.Minute) // 各异的 LastUsedAt
+			accounts = append(accounts, accountWithLoad{
+				account:  &Account{ID: i, Priority: 50, LastUsedAt: &used},
+				loadInfo: &AccountLoadInfo{LoadRate: 0},
+			})
+		}
+
+		counts := make(map[int64]int)
+		for i := 0; i < 50; i++ {
+			selected := selectRoundRobin(accounts, false)
+			require.NotNil(t, selected)
+			counts[selected.account.ID]++
+		}
+
+		require.Len(t, counts, 5, "所有账号都应被选中")
+		for id, c := range counts {
+			require.GreaterOrEqual(t, c, 9, "账号 %d 选中次数过少: %d", id, c)
+			require.LessOrEqual(t, c, 11, "账号 %d 选中次数过多: %d", id, c)
+		}
+	})
+
+	// 跨请求记忆：连续两次调用同一集合应返回不同账号（区别于随机可能重复）。
+	t.Run("counter advances across calls", func(t *testing.T) {
+		accountRoundRobinCounter.Store(0)
+		accounts := []accountWithLoad{
+			{account: &Account{ID: 1}, loadInfo: &AccountLoadInfo{}},
+			{account: &Account{ID: 2}, loadInfo: &AccountLoadInfo{}},
+		}
+		first := selectRoundRobin(accounts, false)
+		second := selectRoundRobin(accounts, false)
+		require.NotNil(t, first)
+		require.NotNil(t, second)
+		require.NotEqual(t, first.account.ID, second.account.ID)
+	})
+
+	// preferOAuth：仅在 OAuth 子集内轮询，且其间均匀。
+	t.Run("preferOAuth rotates only within OAuth accounts", func(t *testing.T) {
+		accountRoundRobinCounter.Store(0)
+		accounts := []accountWithLoad{
+			{account: &Account{ID: 1, Type: "session"}, loadInfo: &AccountLoadInfo{}},
+			{account: &Account{ID: 2, Type: AccountTypeOAuth}, loadInfo: &AccountLoadInfo{}},
+			{account: &Account{ID: 3, Type: "session"}, loadInfo: &AccountLoadInfo{}},
+			{account: &Account{ID: 4, Type: AccountTypeOAuth}, loadInfo: &AccountLoadInfo{}},
+		}
+
+		counts := make(map[int64]int)
+		for i := 0; i < 20; i++ {
+			selected := selectRoundRobin(accounts, true)
+			require.NotNil(t, selected)
+			require.Equal(t, AccountTypeOAuth, selected.account.Type, "preferOAuth 时只应返回 OAuth 账号")
+			counts[selected.account.ID]++
+		}
+		require.Equal(t, 10, counts[2])
+		require.Equal(t, 10, counts[4])
+	})
+
+	// preferOAuth 但无 OAuth 账号时，回退到全集轮询。
+	t.Run("preferOAuth falls back to full pool when no OAuth", func(t *testing.T) {
+		accountRoundRobinCounter.Store(0)
+		accounts := []accountWithLoad{
+			{account: &Account{ID: 1, Type: "session"}, loadInfo: &AccountLoadInfo{}},
+			{account: &Account{ID: 2, Type: "session"}, loadInfo: &AccountLoadInfo{}},
+		}
+		counts := make(map[int64]int)
+		for i := 0; i < 10; i++ {
+			selected := selectRoundRobin(accounts, true)
+			require.NotNil(t, selected)
+			counts[selected.account.ID]++
+		}
+		require.Equal(t, 5, counts[1])
+		require.Equal(t, 5, counts[2])
+	})
+}
