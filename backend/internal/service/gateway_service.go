@@ -1491,12 +1491,43 @@ func (s *GatewayService) applyClaudeCodeOAuthMimicryToBody(
 	//      上打断点；mapping 存入 gin.Context 供响应侧 bytes.Replace 还原。
 	body = s.rewriteMessageCacheControlIfEnabled(ctx, body)
 
+	danglingBefore := findDanglingToolRefs(body)
+
 	body, rw := applyThirdPartyToolMimicry(body)
 	if rw != nil && c != nil {
 		c.Set(toolNameRewriteKey, rw)
 	}
 
+	// 诊断 "Tool reference 'X' not found in available tools"：对比改写前后的悬空
+	// 工具引用。before 非空说明客户端本身发来的请求就自相矛盾（透传问题）；
+	// after 比 before 多说明是我们的工具名改写引入了悬空（网关 bug，需修）。
+	danglingAfter := findDanglingToolRefs(body)
+	introducedByRewrite := hasNewDangling(danglingBefore, danglingAfter)
+	if len(danglingBefore) > 0 || introducedByRewrite {
+		slog.Warn("gateway.dangling_tool_refs",
+			"account_id", account.ID,
+			"model", model,
+			"dangling_before", danglingBefore,
+			"dangling_after", danglingAfter,
+			"introduced_by_rewrite", introducedByRewrite)
+	}
+
 	return body
+}
+
+// hasNewDangling 报告 after 是否包含 before 没有的悬空工具名。
+// 用于区分"客户端原本就悬空"和"我们的改写新引入的悬空"。
+func hasNewDangling(before, after []string) bool {
+	beforeSet := make(map[string]struct{}, len(before))
+	for _, n := range before {
+		beforeSet[n] = struct{}{}
+	}
+	for _, n := range after {
+		if _, ok := beforeSet[n]; !ok {
+			return true
+		}
+	}
+	return false
 }
 
 // buildOAuthMetadataUserIDFromBody 是 buildOAuthMetadataUserID 的变体，

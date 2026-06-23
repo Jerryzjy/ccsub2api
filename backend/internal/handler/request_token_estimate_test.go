@@ -42,6 +42,33 @@ func TestEstimateAnthropicTokens_Chinese(t *testing.T) {
 	require.Equal(t, int64(2), estimateAnthropicTokens(body))
 }
 
+func TestEstimateAnthropicTokens_ToolUseInput(t *testing.T) {
+	// tool_use input raw JSON counted; raw is {"q":"abcd"} = 12 chars -> 3 tokens
+	body := []byte(`{"messages":[{"role":"assistant","content":[` +
+		`{"type":"tool_use","id":"t1","name":"search","input":{"q":"abcd"}}]}]}`)
+	require.Equal(t, int64(3), estimateAnthropicTokens(body))
+}
+
+func TestEstimateAnthropicTokens_ToolResultString(t *testing.T) {
+	// tool_result content raw JSON counted; raw is "abcdefgh" (with quotes) = 10 chars -> 2 tokens
+	body := []byte(`{"messages":[{"role":"user","content":[` +
+		`{"type":"tool_result","tool_use_id":"t1","content":"abcdefgh"}]}]}`)
+	require.Equal(t, int64(2), estimateAnthropicTokens(body))
+}
+
+func TestEstimateAnthropicTokens_ToolResultBlocks(t *testing.T) {
+	// tool_result content as []block: raw is [{"type":"text","text":"abcd"}] = 30 chars -> 7 tokens
+	body := []byte(`{"messages":[{"role":"user","content":[` +
+		`{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"abcd"}]}]}]}`)
+	require.Equal(t, int64(7), estimateAnthropicTokens(body))
+}
+
+func TestEstimateAnthropicTokens_Tools(t *testing.T) {
+	// tools array raw JSON counted; raw is [{"name":"f"}] = 14 chars -> 3 tokens
+	body := []byte(`{"messages":[{"role":"user","content":""}],"tools":[{"name":"f"}]}`)
+	require.Equal(t, int64(3), estimateAnthropicTokens(body))
+}
+
 func TestEstimateAnthropicTokens_EmptyBody(t *testing.T) {
 	require.Equal(t, int64(0), estimateAnthropicTokens([]byte{}))
 }

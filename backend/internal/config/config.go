@@ -696,6 +696,11 @@ type GatewayConfig struct {
 	MaxBodySize int64 `mapstructure:"max_body_size"`
 	// 请求 token 估算上限（本地近似），超过则提前拦截不转发上游。0=禁用。
 	// 用于保护上游账号健康度，避免必然超限的请求打到上游被拒。
+	//
+	// 默认 950000 而非上游硬上限 1000000：本地估算是 char/4 近似，对英文 / JSON
+	// 密集的大请求会偏低估（英文约 3.8 char/token），若阈值贴着硬上限，真实略超
+	// 1M 的请求会被估到 1M 以下而漏过预拦截、打到上游被判 "prompt is too long"。
+	// 留 ~5% 余量吸收估算误差；正常请求离 1M 很远，不会误伤。
 	MaxEstimatedTokens int64 `mapstructure:"max_estimated_tokens"`
 	// user 级并发槽等待超时（秒），超时仍未拿到槽才返回 429。<=0 用内置默认。默认 120。
 	// 拉长可让突发请求被排队吸收成"稍慢"而非直接 429（流式请求等待期间有 SSE 保活）。
@@ -1890,7 +1895,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.antigravity_fallback_cooldown_minutes", 1)
 	viper.SetDefault("gateway.antigravity_extra_retries", 10)
 	viper.SetDefault("gateway.max_body_size", int64(256*1024*1024))
-	viper.SetDefault("gateway.max_estimated_tokens", int64(1_000_000))
+	viper.SetDefault("gateway.max_estimated_tokens", int64(950_000))
 	viper.SetDefault("gateway.user_concurrency_wait_timeout_seconds", 120)
 	viper.SetDefault("gateway.upstream_response_read_max_bytes", DefaultUpstreamResponseReadMaxBytes)
 	viper.SetDefault("gateway.proxy_probe_response_read_max_bytes", int64(1024*1024))
