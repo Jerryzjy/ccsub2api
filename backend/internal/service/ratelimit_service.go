@@ -1476,6 +1476,19 @@ func (s *RateLimitService) handle529(ctx context.Context, account *Account) {
 	slog.Info("account_overloaded", "account_id", account.ID, "until", until)
 }
 
+// windowStandardCost 返回账号当前 5h 窗口内的标准花费（不含账号倍率），
+// 用于反推订阅套餐额度。查询失败时返回 ok=false，调用方据此跳过本次检测。
+func (s *RateLimitService) windowStandardCost(ctx context.Context, account *Account) (float64, bool) {
+	if s.usageRepo == nil {
+		return 0, false
+	}
+	stats, err := s.usageRepo.GetAccountWindowStats(ctx, account.ID, account.GetCurrentWindowStartTime())
+	if err != nil || stats == nil {
+		return 0, false
+	}
+	return stats.StandardCost, true
+}
+
 // UpdateSessionWindow 从成功响应更新5h窗口状态
 func (s *RateLimitService) UpdateSessionWindow(ctx context.Context, account *Account, headers http.Header) {
 	status := headers.Get("anthropic-ratelimit-unified-5h-status")
@@ -1483,8 +1496,8 @@ func (s *RateLimitService) UpdateSessionWindow(ctx context.Context, account *Acc
 		return
 	}
 
-	// 自动检测 Claude 订阅等级
-	detectAndStoreClaudeTier(ctx, account, headers, s.accountRepo)
+	// 自动检测 Claude 订阅等级：用 5h 窗口内的真实花费除以 utilization 反推套餐额度
+	detectAndStoreClaudeTier(ctx, account, headers, s.accountRepo, s.windowStandardCost)
 
 	// 检查是否需要初始化时间窗口
 	// 对于 Setup Token 账号，首次成功请求时需要预测时间窗口

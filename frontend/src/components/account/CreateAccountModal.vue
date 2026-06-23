@@ -2120,36 +2120,93 @@
             </button>
           </div>
 
-          <div v-if="windowCostEnabled" class="grid grid-cols-2 gap-4">
-            <div>
-              <label class="input-label">{{ t('admin.accounts.quotaControl.windowCost.limit') }}</label>
-              <div class="relative">
-                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">$</span>
-                <input
-                  v-model.number="windowCostLimit"
-                  type="number"
-                  min="0"
-                  step="1"
-                  class="input pl-7"
-                  :placeholder="t('admin.accounts.quotaControl.windowCost.limitPlaceholder')"
-                />
-              </div>
-              <p class="input-hint">{{ t('admin.accounts.quotaControl.windowCost.limitHint') }}</p>
+          <div v-if="windowCostEnabled" class="space-y-4">
+            <!-- Mode selector -->
+            <div class="flex gap-2">
+              <button type="button"
+                @click="windowUtilizationEnabled = true"
+                :class="['rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                  windowUtilizationEnabled
+                    ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300 dark:bg-primary-900/30 dark:text-primary-400 dark:ring-primary-700'
+                    : 'bg-gray-100 text-gray-600 dark:bg-dark-600 dark:text-gray-400']"
+              >{{ t('admin.accounts.quotaControl.windowCost.modeUtilization') }}</button>
+              <button type="button"
+                @click="windowUtilizationEnabled = false"
+                :class="['rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                  !windowUtilizationEnabled
+                    ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300 dark:bg-primary-900/30 dark:text-primary-400 dark:ring-primary-700'
+                    : 'bg-gray-100 text-gray-600 dark:bg-dark-600 dark:text-gray-400']"
+              >{{ t('admin.accounts.quotaControl.windowCost.modeFixed') }}</button>
             </div>
-            <div>
-              <label class="input-label">{{ t('admin.accounts.quotaControl.windowCost.stickyReserve') }}</label>
-              <div class="relative">
-                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">$</span>
-                <input
-                  v-model.number="windowCostStickyReserve"
-                  type="number"
-                  min="0"
-                  step="1"
-                  class="input pl-7"
-                  :placeholder="t('admin.accounts.quotaControl.windowCost.stickyReservePlaceholder')"
-                />
+
+            <!-- Utilization mode -->
+            <div v-if="windowUtilizationEnabled" class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="input-label">{{ t('admin.accounts.quotaControl.windowCost.utilizationLimit') }}</label>
+                <div class="relative">
+                  <input
+                    v-model.number="windowUtilizationLimit"
+                    type="number"
+                    min="10"
+                    max="99"
+                    step="1"
+                    class="input pr-8"
+                    placeholder="80"
+                  />
+                  <span class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">%</span>
+                </div>
+                <p class="input-hint">{{ t('admin.accounts.quotaControl.windowCost.utilizationLimitHint') }}</p>
               </div>
-              <p class="input-hint">{{ t('admin.accounts.quotaControl.windowCost.stickyReserveHint') }}</p>
+              <div>
+                <label class="input-label">{{ t('admin.accounts.quotaControl.windowCost.utilizationReserve') }}</label>
+                <div class="relative">
+                  <input
+                    v-model.number="windowUtilizationReserve"
+                    type="number"
+                    min="1"
+                    max="50"
+                    step="1"
+                    class="input pr-8"
+                    placeholder="10"
+                  />
+                  <span class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">%</span>
+                </div>
+                <p class="input-hint">{{ t('admin.accounts.quotaControl.windowCost.utilizationReserveHint') }}</p>
+              </div>
+            </div>
+
+            <!-- Fixed dollar mode -->
+            <div v-else class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="input-label">{{ t('admin.accounts.quotaControl.windowCost.limit') }}</label>
+                <div class="relative">
+                  <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">$</span>
+                  <input
+                    v-model.number="windowCostLimit"
+                    type="number"
+                    min="0"
+                    step="1"
+                    class="input pl-7"
+                    :placeholder="t('admin.accounts.quotaControl.windowCost.limitPlaceholder')"
+                  />
+                </div>
+                <p class="input-hint">{{ t('admin.accounts.quotaControl.windowCost.limitHint') }}</p>
+              </div>
+              <div>
+                <label class="input-label">{{ t('admin.accounts.quotaControl.windowCost.stickyReserve') }}</label>
+                <div class="relative">
+                  <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">$</span>
+                  <input
+                    v-model.number="windowCostStickyReserve"
+                    type="number"
+                    min="0"
+                    step="1"
+                    class="input pl-7"
+                    :placeholder="t('admin.accounts.quotaControl.windowCost.stickyReservePlaceholder')"
+                  />
+                </div>
+                <p class="input-hint">{{ t('admin.accounts.quotaControl.windowCost.stickyReserveHint') }}</p>
+              </div>
             </div>
           </div>
         </div>
@@ -3557,6 +3614,9 @@ const showGeminiHelpDialog = ref(false)
 const windowCostEnabled = ref(false)
 const windowCostLimit = ref<number | null>(null)
 const windowCostStickyReserve = ref<number | null>(null)
+const windowUtilizationEnabled = ref(true)
+const windowUtilizationLimit = ref<number | null>(null)
+const windowUtilizationReserve = ref<number | null>(null)
 const sessionLimitEnabled = ref(false)
 const maxSessions = ref<number | null>(null)
 const sessionIdleTimeout = ref<number | null>(null)
@@ -4254,6 +4314,9 @@ const resetForm = () => {
   windowCostEnabled.value = false
   windowCostLimit.value = null
   windowCostStickyReserve.value = null
+  windowUtilizationEnabled.value = true
+  windowUtilizationLimit.value = null
+  windowUtilizationReserve.value = null
   sessionLimitEnabled.value = false
   maxSessions.value = null
   sessionIdleTimeout.value = null
@@ -5293,8 +5356,11 @@ const handleAnthropicExchange = async (authCode: string) => {
     const baseExtra = oauth.buildExtraInfo(tokenInfo) || {}
     const extra: Record<string, unknown> = { ...baseExtra }
 
-    // Add window cost limit settings
-    if (windowCostEnabled.value && windowCostLimit.value != null && windowCostLimit.value > 0) {
+    // Add 5h window cost control: utilization mode or fixed dollar mode (mutually exclusive)
+    if (windowCostEnabled.value && windowUtilizationEnabled.value) {
+      extra.window_utilization_limit = (windowUtilizationLimit.value || 80) / 100
+      extra.window_utilization_reserve = (windowUtilizationReserve.value || 10) / 100
+    } else if (windowCostEnabled.value && !windowUtilizationEnabled.value && windowCostLimit.value != null && windowCostLimit.value > 0) {
       extra.window_cost_limit = windowCostLimit.value
       extra.window_cost_sticky_reserve = windowCostStickyReserve.value ?? 10
     }
@@ -5416,8 +5482,11 @@ const handleCookieAuth = async (sessionKey: string) => {
         const baseExtra = oauth.buildExtraInfo(tokenInfo) || {}
         const extra: Record<string, unknown> = { ...baseExtra }
 
-        // Add window cost limit settings
-        if (windowCostEnabled.value && windowCostLimit.value != null && windowCostLimit.value > 0) {
+        // Add 5h window cost control: utilization mode or fixed dollar mode (mutually exclusive)
+        if (windowCostEnabled.value && windowUtilizationEnabled.value) {
+          extra.window_utilization_limit = (windowUtilizationLimit.value || 80) / 100
+          extra.window_utilization_reserve = (windowUtilizationReserve.value || 10) / 100
+        } else if (windowCostEnabled.value && !windowUtilizationEnabled.value && windowCostLimit.value != null && windowCostLimit.value > 0) {
           extra.window_cost_limit = windowCostLimit.value
           extra.window_cost_sticky_reserve = windowCostStickyReserve.value ?? 10
         }
