@@ -170,7 +170,8 @@ func (s *UpdateService) PerformUpdate(ctx context.Context) error {
 	}
 
 	if downloadURL == "" {
-		return fmt.Errorf("no compatible release found for %s/%s", runtime.GOOS, runtime.GOARCH)
+		return infraerrors.InternalServer("UPDATE_NO_COMPATIBLE_RELEASE",
+			fmt.Sprintf("no compatible release found for %s/%s", runtime.GOOS, runtime.GOARCH))
 	}
 
 	// SECURITY: Validate download URL is from trusted domain
@@ -186,11 +187,11 @@ func (s *UpdateService) PerformUpdate(ctx context.Context) error {
 	// Get current executable path
 	exePath, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("failed to get executable path: %w", err)
+		return infraerrors.InternalServer("UPDATE_EXE_PATH_FAILED", "failed to get executable path: "+err.Error())
 	}
 	exePath, err = filepath.EvalSymlinks(exePath)
 	if err != nil {
-		return fmt.Errorf("failed to resolve symlinks: %w", err)
+		return infraerrors.InternalServer("UPDATE_SYMLINK_FAILED", "failed to resolve symlinks: "+err.Error())
 	}
 
 	exeDir := filepath.Dir(exePath)
@@ -199,32 +200,33 @@ func (s *UpdateService) PerformUpdate(ctx context.Context) error {
 	// This ensures os.Rename is atomic (same filesystem)
 	tempDir, err := os.MkdirTemp(exeDir, ".sub2api-update-*")
 	if err != nil {
-		return fmt.Errorf("failed to create temp dir: %w", err)
+		return infraerrors.InternalServer("UPDATE_TEMPDIR_FAILED",
+			"failed to create temp dir (check write permission on install dir): "+err.Error())
 	}
 	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	// Download archive
 	archivePath := filepath.Join(tempDir, filepath.Base(downloadURL))
 	if err := s.downloadFile(ctx, downloadURL, archivePath); err != nil {
-		return fmt.Errorf("download failed: %w", err)
+		return infraerrors.InternalServer("UPDATE_DOWNLOAD_FAILED", "download failed: "+err.Error())
 	}
 
 	// Verify checksum if available
 	if checksumURL != "" {
 		if err := s.verifyChecksum(ctx, archivePath, checksumURL); err != nil {
-			return fmt.Errorf("checksum verification failed: %w", err)
+			return infraerrors.InternalServer("UPDATE_CHECKSUM_FAILED", "checksum verification failed: "+err.Error())
 		}
 	}
 
 	// Extract binary from archive
 	newBinaryPath := filepath.Join(tempDir, "sub2api")
 	if err := s.extractBinary(archivePath, newBinaryPath); err != nil {
-		return fmt.Errorf("extraction failed: %w", err)
+		return infraerrors.InternalServer("UPDATE_EXTRACTION_FAILED", "extraction failed: "+err.Error())
 	}
 
 	// Set executable permission before replacement
 	if err := os.Chmod(newBinaryPath, 0755); err != nil {
-		return fmt.Errorf("chmod failed: %w", err)
+		return infraerrors.InternalServer("UPDATE_CHMOD_FAILED", "chmod failed: "+err.Error())
 	}
 
 	// Atomic replacement using rename pattern:
@@ -238,16 +240,17 @@ func (s *UpdateService) PerformUpdate(ctx context.Context) error {
 
 	// Step 1: Move current binary to backup
 	if err := os.Rename(exePath, backupPath); err != nil {
-		return fmt.Errorf("backup failed: %w", err)
+		return infraerrors.InternalServer("UPDATE_BACKUP_FAILED", "backup failed: "+err.Error())
 	}
 
 	// Step 2: Move new binary to target location (atomic, same filesystem)
 	if err := os.Rename(newBinaryPath, exePath); err != nil {
 		// Restore backup on failure
 		if restoreErr := os.Rename(backupPath, exePath); restoreErr != nil {
-			return fmt.Errorf("replace failed and restore failed: %w (restore error: %v)", err, restoreErr)
+			return infraerrors.InternalServer("UPDATE_REPLACE_RESTORE_FAILED",
+				fmt.Sprintf("replace failed and restore failed: %v (restore error: %v)", err, restoreErr))
 		}
-		return fmt.Errorf("replace failed (restored backup): %w", err)
+		return infraerrors.InternalServer("UPDATE_REPLACE_FAILED", "replace failed (restored backup): "+err.Error())
 	}
 
 	// Success - backup file is kept for rollback capability
