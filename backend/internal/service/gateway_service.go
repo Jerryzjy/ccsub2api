@@ -5248,6 +5248,14 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 				}
 				// 不是签名错误（或整流器已关闭），继续检查 budget 约束
 				errMsg := extractUpstreamErrorMessage(respBody)
+				// 诊断埋点：上游因 image 块缺 source 返回 400 时，打出畸形块的脱敏结构骨架，
+				// 用于确认第三方客户端发的真实形态（后续据此决定删块/改写兜底）。只读，不改请求。
+				if isMissingImageSourceError(errMsg) {
+					for _, offender := range diagnoseMissingImageSource(body) {
+						logger.LegacyPrintf("service.gateway",
+							"[image-diag] account=%d msg=%q offender=%s", account.ID, errMsg, offender)
+					}
+				}
 				if isThinkingBudgetConstraintError(errMsg) && s.settingService.IsBudgetRectifierEnabled(ctx) {
 					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 						Platform:           account.Platform,
