@@ -19,19 +19,31 @@ var noPrefillModels = map[string]bool{
 	"claude-sonnet-4-6-20260529": true,
 }
 
-// stripAssistantPrefillIfUnsupported removes the last assistant message if:
-// 1. The model does not support assistant prefill
-// 2. The last message role is "assistant"
-// 3. The last message content is empty or whitespace-only
+// stripAssistantPrefillIfUnsupported removes trailing assistant messages when
+// the target model does not support assistant prefill.
 //
-// This prevents 400 errors like:
+// Models like claude-opus-4-8 reject any conversation that ends with an
+// assistant message (whether the prefill content is empty or not) with:
 // "This model does not support assistant message prefill. The conversation must end with a user message."
+//
+// Real Claude Code never sends an assistant prefill — only third-party clients
+// do. Since these models cannot continue a prefilled assistant turn, the only
+// way to make the request succeed is to drop the trailing assistant message(s)
+// so the conversation ends with a user message. The model then answers the
+// preceding user turn normally. This is lossy by necessity: there is no
+// faithful way to honor a prefill on a model that does not support it, and
+// rewriting the prefill into a user turn would change the output contract
+// (the model would return a full reply instead of a continuation), producing
+// duplicated/garbled output for clients that follow the prefill protocol.
+//
+// Trailing assistant messages are removed in a loop to cover the edge case of
+// several consecutive assistant turns, guaranteeing the result ends with a
+// user message.
 func stripAssistantPrefillIfUnsupported(body []byte, modelID string) ([]byte, error) {
 	if !noPrefillModels[modelID] {
 		return body, nil
 	}
 
-	// Parse messages array
 	messagesResult := gjson.GetBytes(body, "messages")
 	if !messagesResult.Exists() || !messagesResult.IsArray() {
 		return body, nil
@@ -42,49 +54,23 @@ func stripAssistantPrefillIfUnsupported(body []byte, modelID string) ([]byte, er
 		return body, nil
 	}
 
-	// Check last message
-	lastMsg := messages[len(messages)-1]
-	role := lastMsg.Get("role").String()
-	if role != "assistant" {
+	// Walk back from the tail, dropping consecutive assistant messages until the
+	// conversation ends with a non-assistant (user) message.
+	keep := len(messages)
+	for keep > 0 && messages[keep-1].Get("role").String() == "assistant" {
+		keep--
+	}
+
+	// Already ends with a user (or non-assistant) message — nothing to do.
+	if keep == len(messages) {
 		return body, nil
 	}
 
-	// Check if content is empty
-	content := lastMsg.Get("content")
-	isEmpty := false
-
-	switch content.Type {
-	case gjson.String:
-		isEmpty = content.String() == ""
-	case gjson.JSON:
-		if content.IsArray() {
-			arr := content.Array()
-			if len(arr) == 0 {
-				isEmpty = true
-			} else {
-				allEmpty := true
-				for _, block := range arr {
-					if block.Get("type").String() == "text" {
-						if block.Get("text").String() != "" {
-							allEmpty = false
-							break
-						}
-					}
-				}
-				isEmpty = allEmpty
-			}
-		}
-	case gjson.Null:
-		isEmpty = true
-	}
-
-	if !isEmpty {
-		return body, nil
-	}
-
-	// Remove the last message
-	newMessages := make([]json.RawMessage, len(messages)-1)
-	for i := 0; i < len(messages)-1; i++ {
+	// keep == 0 means every message is an assistant turn — a malformed request
+	// that has no valid prefix to preserve. Emptying messages lets the upstream
+	// return a clearer "messages must not be empty" error than the prefill 400.
+	newMessages := make([]json.RawMessage, keep)
+	for i := 0; i < keep; i++ {
 		newMessages[i] = json.RawMessage(messages[i].Raw)
 	}
 
