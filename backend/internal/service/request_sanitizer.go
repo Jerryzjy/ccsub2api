@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -32,6 +33,25 @@ func sanitizeRequestParams(body []byte, modelID string) []byte {
 	body = fixToolResultImageMediaTypes(body)
 	body = fixImageURLToImage(body)
 	body = stripThinkingIncompatibleParams(body)
+	body = stripSamplingParamsIfModelRejects(body, modelID)
+	return body
+}
+
+// stripSamplingParamsIfModelRejects removes temperature/top_p/top_k for models
+// that have dropped sampling parameters entirely (Opus 4.5+). Sending any of
+// them yields `<param> is deprecated for this model` (invalid_request_error).
+// No-op for models that still accept sampling.
+func stripSamplingParamsIfModelRejects(body []byte, modelID string) []byte {
+	if !claude.ModelRejectsSampling(modelID) {
+		return body
+	}
+	for _, param := range []string{"temperature", "top_p", "top_k"} {
+		if gjson.GetBytes(body, param).Exists() {
+			if updated, err := sjson.DeleteBytes(body, param); err == nil {
+				body = updated
+			}
+		}
+	}
 	return body
 }
 

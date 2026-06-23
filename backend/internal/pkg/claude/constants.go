@@ -1,6 +1,8 @@
 // Package claude provides constants and helpers for Claude API integration.
 package claude
 
+import "strings"
+
 // Claude Code 客户端相关常量
 
 // Beta header 常量
@@ -212,4 +214,36 @@ func DenormalizeModelID(id string) string {
 		return mapped
 	}
 	return id
+}
+
+// samplingRejectingModelPrefixes 列出"已移除采样参数（temperature/top_p/top_k）"
+// 的模型 ID 前缀。Anthropic 自 Opus 4.5 起在这些模型上彻底移除采样参数，请求里
+// 带 temperature 会被拒（`temperature is deprecated for this model`）。
+//
+// 单一来源：新增此类模型时只改这里。用前缀匹配以同时覆盖带日期后缀的完整 ID
+// （如 claude-opus-4-5-20251101）与短名（claude-opus-4-5）。
+//
+// 故意只列已确认拒绝采样的模型——Sonnet 4.5 / Haiku 4.5 等仍接受 temperature，
+// 不在此列，以免破坏它们的 CLI 指纹模仿。
+var samplingRejectingModelPrefixes = []string{
+	"claude-opus-4-5",
+	"claude-opus-4-6",
+	"claude-opus-4-7",
+	"claude-opus-4-8",
+	"claude-fable", // 新代号系列同样不接受采样参数
+}
+
+// ModelRejectsSampling 判断目标模型是否拒绝采样参数（temperature/top_p/top_k）。
+// 调用方据此在转发前删除 temperature，并跳过"模仿 CLI 注入 temperature:1"。
+func ModelRejectsSampling(modelID string) bool {
+	id := strings.ToLower(strings.TrimSpace(modelID))
+	if id == "" {
+		return false
+	}
+	for _, prefix := range samplingRejectingModelPrefixes {
+		if strings.HasPrefix(id, prefix) {
+			return true
+		}
+	}
+	return false
 }

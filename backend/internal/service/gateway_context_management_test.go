@@ -300,6 +300,31 @@ func TestNormalizeClaudeOAuthRequestBody_InjectsContextManagement_ThinkingAdapti
 	require.True(t, gjson.GetBytes(out, "context_management").Exists())
 }
 
+// Opus 4.5+ reject sampling: the OAuth mimicry path must NOT inject the
+// CLI-fingerprint temperature:1, and must strip any temperature the client sent.
+func TestNormalizeClaudeOAuthRequestBody_RejectingModelNoTemperatureInjection(t *testing.T) {
+	// non-thinking request on a rejecting model, no temperature present
+	body := []byte(`{"model":"claude-opus-4-7","messages":[]}`)
+	out, _ := normalizeClaudeOAuthRequestBody(body, "claude-opus-4-7", claudeOAuthNormalizeOptions{})
+	require.False(t, gjson.GetBytes(out, "temperature").Exists(),
+		"must not inject temperature for a sampling-rejecting model")
+}
+
+func TestNormalizeClaudeOAuthRequestBody_RejectingModelStripsClientTemperature(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-7","temperature":0.7,"messages":[]}`)
+	out, _ := normalizeClaudeOAuthRequestBody(body, "claude-opus-4-7", claudeOAuthNormalizeOptions{})
+	require.False(t, gjson.GetBytes(out, "temperature").Exists(),
+		"must strip client-sent temperature for a sampling-rejecting model")
+}
+
+func TestNormalizeClaudeOAuthRequestBody_AcceptingModelInjectsTemperature(t *testing.T) {
+	// non-thinking request on an accepting model => CLI mimicry injects temperature:1
+	body := []byte(`{"model":"claude-sonnet-4-5","messages":[]}`)
+	out, _ := normalizeClaudeOAuthRequestBody(body, "claude-sonnet-4-5", claudeOAuthNormalizeOptions{})
+	require.Equal(t, int64(1), gjson.GetBytes(out, "temperature").Int(),
+		"accepting model must still get the CLI-fingerprint temperature:1")
+}
+
 func TestNormalizeClaudeOAuthRequestBody_HaikuStillInjects_StripDeferredToSanitize(t *testing.T) {
 	// haiku + thinking=enabled：normalize 阶段仍按 CLI mimicry 行为补齐字段；
 	// strip 由 buildUpstreamRequest 层的 sanitize 兜底（如果 final beta 不含 token）。

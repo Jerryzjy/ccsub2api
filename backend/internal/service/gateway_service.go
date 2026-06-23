@@ -1321,10 +1321,13 @@ func normalizeClaudeOAuthRequestBody(body []byte, modelID string, opts claudeOAu
 
 	// temperature：
 	// - thinking 模型（type=enabled/adaptive）不支持 temperature，必须移除
-	// - 非 thinking 模型：真实 Claude Code CLI 总是发送 temperature（默认 1）
+	// - Opus 4.5+ 等模型彻底移除采样参数，带 temperature 会被拒，必须移除且不注入
+	// - 其余非 thinking 模型：真实 Claude Code CLI 总是发送 temperature（默认 1），
+	//   缺失时补齐以对齐指纹
 	thinkingType := gjson.GetBytes(out, "thinking.type").String()
 	isThinkingRequest := thinkingType == "enabled" || thinkingType == "adaptive"
-	if isThinkingRequest {
+	rejectsSampling := claude.ModelRejectsSampling(gjson.GetBytes(out, "model").String())
+	if isThinkingRequest || rejectsSampling {
 		if gjson.GetBytes(out, "temperature").Exists() {
 			if next, err := sjson.DeleteBytes(out, "temperature"); err == nil {
 				out = next
@@ -5858,7 +5861,9 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 		body = stripped
 	}
 	body = fixImageMediaTypes(body)
-	// thinking 模型不支持 temperature
+	// thinking 模型不支持 temperature。
+	// 注：Opus 4.5+ 等"拒绝采样"模型的 temperature/top_p/top_k 已由上面的
+	// sanitizeRequestParams → stripSamplingParamsIfModelRejects 统一移除。
 	thinkingType := gjson.GetBytes(body, "thinking.type").String()
 	if (thinkingType == "enabled" || thinkingType == "adaptive") && gjson.GetBytes(body, "temperature").Exists() {
 		if next, err := sjson.DeleteBytes(body, "temperature"); err == nil {
