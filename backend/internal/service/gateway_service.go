@@ -3166,6 +3166,29 @@ func selectRoundRobin(accounts []accountWithLoad, preferOAuth bool) *accountWith
 	return &accounts[pool[start]]
 }
 
+// enforceProxyRequirement 防封：当 proxy.require_for_upstream 开启时，Anthropic 账号
+// 必须有可用代理出口，否则拒绝请求，避免用机房真实 IP 直连上游导致账号关联/封号。
+// 自定义 base URL 的账号（私有中转）不受此约束。
+func (s *GatewayService) enforceProxyRequirement(account *Account, proxyURL string) error {
+	if account == nil || s.cfg == nil {
+		return nil
+	}
+	if !s.cfg.Proxy.RequireForUpstream {
+		return nil
+	}
+	if account.Platform != PlatformAnthropic {
+		return nil
+	}
+	if account.IsCustomBaseURLEnabled() && account.GetCustomBaseURL() != "" {
+		return nil
+	}
+	if strings.TrimSpace(proxyURL) == "" {
+		logger.LegacyPrintf("service.gateway", "[AntiBan] refuse direct upstream: account=%d name=%s has no proxy (require_for_upstream=true)", account.ID, account.Name)
+		return fmt.Errorf("account %d has no upstream proxy; refusing direct connection to protect account (set a proxy or disable proxy.require_for_upstream)", account.ID)
+	}
+	return nil
+}
+
 // selectTieBreak 按配置的 tie-break 策略在负载并列档内选号。
 // mode="round_robin" 走轮询(均衡优先)；其余(默认 "lru")走 LRU(缓存亲和优先)。
 //
@@ -5141,6 +5164,9 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			proxyURL = account.Proxy.URL()
 		}
 	}
+	if err := s.enforceProxyRequirement(account, proxyURL); err != nil {
+		return nil, err
+	}
 
 	// 解析 TLS 指纹 profile（同一请求生命周期内不变，避免重试循环中重复解析）
 	tlsProfile := s.tlsFPProfileService.ResolveTLSProfile(account)
@@ -5733,6 +5759,9 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
+	}
+	if err := s.enforceProxyRequirement(account, proxyURL); err != nil {
+		return nil, err
 	}
 
 	logger.LegacyPrintf("service.gateway", "[Anthropic 自动透传] 命中 API Key 透传分支: account=%d name=%s model=%s stream=%v",
@@ -10091,6 +10120,10 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 			proxyURL = account.Proxy.URL()
 		}
 	}
+	if err := s.enforceProxyRequirement(account, proxyURL); err != nil {
+		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Account has no upstream proxy")
+		return err
+	}
 
 	// 发送请求
 	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
@@ -10215,6 +10248,10 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
+	}
+	if err := s.enforceProxyRequirement(account, proxyURL); err != nil {
+		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Account has no upstream proxy")
+		return err
 	}
 
 	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
