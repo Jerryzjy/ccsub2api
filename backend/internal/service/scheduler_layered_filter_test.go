@@ -360,3 +360,23 @@ func TestSelectRoundRobin(t *testing.T) {
 		require.Equal(t, 5, counts[2])
 	})
 }
+
+func TestSelectTieBreakRouting(t *testing.T) {
+	accs := []accountWithLoad{
+		{account: &Account{ID: 1, Type: AccountTypeOAuth}, loadInfo: &AccountLoadInfo{}},
+		{account: &Account{ID: 2, Type: AccountTypeOAuth}, loadInfo: &AccountLoadInfo{}},
+	}
+
+	// lru 模式应返回非 nil（确定性，不依赖全局计数器）
+	require.NotNil(t, selectTieBreak(accs, false, "lru"))
+
+	// 默认（空 mode）应等同 lru，不轮询
+	require.NotNil(t, selectTieBreak(accs, false, ""))
+
+	// round_robin 模式连续两次应轮换到不同账号
+	a := selectTieBreak(accs, false, "round_robin")
+	b := selectTieBreak(accs, false, "round_robin")
+	require.NotNil(t, a)
+	require.NotNil(t, b)
+	require.NotEqual(t, a.account.ID, b.account.ID, "round_robin should rotate")
+}

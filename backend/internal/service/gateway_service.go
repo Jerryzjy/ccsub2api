@@ -2299,14 +2299,20 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			}
 		}
 
-		// 分层过滤选择：优先级 → 负载率 → LRU
+		// 防封：按上游 account_uuid 折叠重复导入的账号，避免在"同一上游账号的多条记录"
+		// 之间做负载均衡/轮询（那会把同一会话甩到不同记录、丢失 prompt cache）。
+		if cfg.FoldByUUIDEnabled {
+			available = foldByUpstreamIdentity(available)
+		}
+
+		// 分层过滤选择：优先级 → 负载率 → tie-break(lru 默认 / round_robin)
 		for len(available) > 0 {
 			// 1. 取优先级最小的集合
 			candidates := filterByMinPriority(available)
 			// 2. 取负载率最低的集合
 			candidates = filterByMinLoadRate(candidates)
-			// 3. 在负载并列档内进程内轮询选号（雨露均沾），替代并列随机
-			selected := selectRoundRobin(candidates, preferOAuth)
+			// 3. 负载并列档内 tie-break 选号（默认 lru，缓存亲和优先）
+			selected := selectTieBreak(candidates, preferOAuth, cfg.TieBreakMode)
 			if selected == nil {
 				break
 			}
@@ -3158,6 +3164,18 @@ func selectRoundRobin(accounts []accountWithLoad, preferOAuth bool) *accountWith
 	idx := accountRoundRobinCounter.Add(1)
 	start := int(idx % uint64(len(pool)))
 	return &accounts[pool[start]]
+}
+
+// selectTieBreak 按配置的 tie-break 策略在负载并列档内选号。
+// mode="round_robin" 走轮询(均衡优先)；其余(默认 "lru")走 LRU(缓存亲和优先)。
+//
+// 默认 lru 是防封修复的一部分：轮询会在 sticky 逃逸时把同一会话打散到不同账号，
+// 在存在重复导入账号时尤其会摧毁 prompt cache 命中率；lru 倾向回到同一账号，缓存友好。
+func selectTieBreak(accounts []accountWithLoad, preferOAuth bool, mode string) *accountWithLoad {
+	if mode == "round_robin" {
+		return selectRoundRobin(accounts, preferOAuth)
+	}
+	return selectByLRU(accounts, preferOAuth)
 }
 
 func sortAccountsByPriorityAndLastUsed(accounts []*Account, preferOAuth bool) {
