@@ -2291,6 +2291,11 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			if loadInfo == nil {
 				loadInfo = &AccountLoadInfo{AccountID: acc.ID}
 			}
+			// 防封：窗口额度预检，接近上限的账号提前跳过，避免被上游 429。
+			if cfg.WindowPrecheckEnabled && ShouldSkipForWindowQuota(acc, cfg.WindowPrecheckThreshold) {
+				logger.LegacyPrintf("service.gateway", "[AntiBan] skip account=%d name=%s: window quota near limit (>= %.2f)", acc.ID, acc.Name, cfg.WindowPrecheckThreshold)
+				continue
+			}
 			if loadInfo.LoadRate < 100 {
 				available = append(available, accountWithLoad{
 					account:  acc,
