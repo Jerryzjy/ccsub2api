@@ -93,6 +93,22 @@ type Config struct {
 	Gemini                  GeminiConfig                  `mapstructure:"gemini"`
 	Update                  UpdateConfig                  `mapstructure:"update"`
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
+	Proxy                   ProxyPolicyConfig             `mapstructure:"proxy"`
+	Account                 AccountPolicyConfig           `mapstructure:"account"`
+}
+
+// ProxyPolicyConfig 代理出口策略（防封）。
+type ProxyPolicyConfig struct {
+	// RequireForUpstream: true 时账号无可用代理则拒绝调度/报错，禁止机房真实 IP 直连。
+	RequireForUpstream bool `mapstructure:"require_for_upstream"`
+	// SharedIPWarnThreshold: 单个出口代理被超过该数量的不同上游账号共用时告警（1=任何共用都告警）。
+	SharedIPWarnThreshold int `mapstructure:"shared_ip_warn_threshold"`
+}
+
+// AccountPolicyConfig 账号导入策略（防封）。
+type AccountPolicyConfig struct {
+	// ImportDedupEnabled: 导入 anthropic 账号时按 account_uuid 去重，命中已存在则合并更新而非新建。
+	ImportDedupEnabled bool `mapstructure:"import_dedup_enabled"`
 }
 
 type LogConfig struct {
@@ -1066,6 +1082,21 @@ type GatewaySchedulingConfig struct {
 	// 兜底层账户选择策略: "last_used"(按最后使用时间排序，默认) 或 "random"(随机)
 	FallbackSelectionMode string `mapstructure:"fallback_selection_mode"`
 
+	// ===== 防封策略开关（默认安全值，可一键回退）=====
+	// 候选按上游 account_uuid 折叠，避免重复导入的同一账号被劈裂调度
+	FoldByUUIDEnabled bool `mapstructure:"fold_by_uuid_enabled"`
+	// 负载并列档 tie-break 策略: "lru"(默认,缓存亲和优先) 或 "round_robin"(均衡优先)
+	TieBreakMode string `mapstructure:"tie_break_mode"`
+	// 限流/封号冷却联动同 UUID 的所有记录
+	CooldownByUUID bool `mapstructure:"cooldown_by_uuid"`
+	// 窗口额度预检：接近上限时提前停调度
+	WindowPrecheckEnabled   bool    `mapstructure:"window_precheck_enabled"`
+	WindowPrecheckThreshold float64 `mapstructure:"window_precheck_threshold"`
+	// RPM 节流
+	RPMThrottleEnabled bool `mapstructure:"rpm_throttle_enabled"`
+	// 健康度评分
+	HealthScoreEnabled bool `mapstructure:"health_score_enabled"`
+
 	// 负载计算
 	LoadBatchEnabled    bool `mapstructure:"load_batch_enabled"`
 	LoadBatchCacheTTLMS int  `mapstructure:"load_batch_cache_ttl_ms"`
@@ -1208,6 +1239,9 @@ type OpsConfig struct {
 
 	// Pre-aggregation configuration.
 	Aggregation OpsAggregationConfig `mapstructure:"aggregation"`
+
+	// AntiBanAlertEnabled 启用防封告警（批量限流/共享IP风险/缓存命中率骤降）。
+	AntiBanAlertEnabled bool `mapstructure:"anti_ban_alert_enabled"`
 }
 
 type OpsCleanupConfig struct {
@@ -1933,6 +1967,18 @@ func setDefaults() {
 	viper.SetDefault("gateway.scheduling.outbox_lag_rebuild_failures", 3)
 	viper.SetDefault("gateway.scheduling.outbox_backlog_rebuild_rows", 10000)
 	viper.SetDefault("gateway.scheduling.full_rebuild_interval_seconds", 300)
+	// 防封策略默认值（安全保守值）
+	viper.SetDefault("gateway.scheduling.fold_by_uuid_enabled", true)
+	viper.SetDefault("gateway.scheduling.tie_break_mode", "lru")
+	viper.SetDefault("gateway.scheduling.cooldown_by_uuid", true)
+	viper.SetDefault("gateway.scheduling.window_precheck_enabled", true)
+	viper.SetDefault("gateway.scheduling.window_precheck_threshold", 0.8)
+	viper.SetDefault("gateway.scheduling.rpm_throttle_enabled", true)
+	viper.SetDefault("gateway.scheduling.health_score_enabled", true)
+	viper.SetDefault("proxy.require_for_upstream", true)
+	viper.SetDefault("proxy.shared_ip_warn_threshold", 1)
+	viper.SetDefault("account.import_dedup_enabled", true)
+	viper.SetDefault("ops.anti_ban_alert_enabled", true)
 	viper.SetDefault("gateway.usage_record.worker_count", 128)
 	viper.SetDefault("gateway.usage_record.queue_size", 16384)
 	viper.SetDefault("gateway.usage_record.task_timeout_seconds", 5)

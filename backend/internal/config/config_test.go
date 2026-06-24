@@ -81,6 +81,49 @@ func TestLoadDefaultSchedulingConfig(t *testing.T) {
 	}
 }
 
+func TestAntiBanDefaults(t *testing.T) {
+	resetViperWithJWTSecret(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	s := cfg.Gateway.Scheduling
+	if !s.FoldByUUIDEnabled {
+		t.Error("fold_by_uuid_enabled default should be true")
+	}
+	if s.TieBreakMode != "lru" {
+		t.Errorf("tie_break_mode default = %q, want lru", s.TieBreakMode)
+	}
+	if !s.CooldownByUUID {
+		t.Error("cooldown_by_uuid default should be true")
+	}
+	if !s.WindowPrecheckEnabled {
+		t.Error("window_precheck_enabled default should be true")
+	}
+	if s.WindowPrecheckThreshold != 0.8 {
+		t.Errorf("window_precheck_threshold default = %v, want 0.8", s.WindowPrecheckThreshold)
+	}
+	if !s.RPMThrottleEnabled {
+		t.Error("rpm_throttle_enabled default should be true")
+	}
+	if !s.HealthScoreEnabled {
+		t.Error("health_score_enabled default should be true")
+	}
+	if !cfg.Proxy.RequireForUpstream {
+		t.Error("proxy.require_for_upstream default should be true")
+	}
+	if cfg.Proxy.SharedIPWarnThreshold != 1 {
+		t.Errorf("proxy.shared_ip_warn_threshold default = %d, want 1", cfg.Proxy.SharedIPWarnThreshold)
+	}
+	if !cfg.Account.ImportDedupEnabled {
+		t.Error("account.import_dedup_enabled default should be true")
+	}
+	if !cfg.Ops.AntiBanAlertEnabled {
+		t.Error("ops.anti_ban_alert_enabled default should be true")
+	}
+}
+
 func TestLoadDefaultOpenAIWSConfig(t *testing.T) {
 	resetViperWithJWTSecret(t)
 
