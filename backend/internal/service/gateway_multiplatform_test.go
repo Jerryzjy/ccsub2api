@@ -86,6 +86,10 @@ func (m *mockAccountRepoForPlatform) ListByUpstreamUUID(ctx context.Context, uui
 	return nil, nil
 }
 
+func (m *mockAccountRepoForPlatform) UpdateCredentials(ctx context.Context, id int64, credentials map[string]any) error {
+	return nil
+}
+
 func (m *mockAccountRepoForPlatform) ListCRSAccountIDs(ctx context.Context) (map[string]int64, error) {
 	return nil, nil
 }

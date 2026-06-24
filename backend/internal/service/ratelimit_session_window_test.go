@@ -102,6 +102,9 @@ func (m *sessionWindowMockRepo) ListByPlatform(context.Context, string) ([]Accou
 func (m *sessionWindowMockRepo) ListByUpstreamUUID(context.Context, string) ([]Account, error) {
 	return nil, nil
 }
+func (m *sessionWindowMockRepo) UpdateCredentials(context.Context, int64, map[string]any) error {
+	return nil
+}
 func (m *sessionWindowMockRepo) UpdateLastUsed(context.Context, int64) error { panic("unexpected") }
 func (m *sessionWindowMockRepo) BatchUpdateLastUsed(context.Context, map[int64]time.Time) error {
 	panic("unexpected")

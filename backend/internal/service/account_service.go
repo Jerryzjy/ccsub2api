@@ -77,6 +77,8 @@ type AccountRepository interface {
 	// 用于 active poll 拿到新 ResetsAt 后回写，避免覆盖请求路径上记录的 status。
 	UpdateSessionWindowEnd(ctx context.Context, id int64, end time.Time) error
 	UpdateExtra(ctx context.Context, id int64, updates map[string]any) error
+	// UpdateCredentials 覆盖账号 credentials（用于导入去重时合并最新凭证）。
+	UpdateCredentials(ctx context.Context, id int64, credentials map[string]any) error
 	BulkUpdate(ctx context.Context, ids []int64, updates AccountBulkUpdate) (int64, error)
 	// IncrementQuotaUsed 原子递增 API Key 账号的配额用量（总/日/周）
 	IncrementQuotaUsed(ctx context.Context, id int64, amount float64) error

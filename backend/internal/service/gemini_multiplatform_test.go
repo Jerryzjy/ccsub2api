@@ -75,6 +75,10 @@ func (m *mockAccountRepoForGemini) ListByUpstreamUUID(ctx context.Context, uuid 
 	return nil, nil
 }
 
+func (m *mockAccountRepoForGemini) UpdateCredentials(ctx context.Context, id int64, credentials map[string]any) error {
+	return nil
+}
+
 func (m *mockAccountRepoForGemini) ListCRSAccountIDs(ctx context.Context) (map[string]int64, error) {
 	return nil, nil
 }

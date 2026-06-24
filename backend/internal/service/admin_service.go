@@ -17,6 +17,7 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/authidentity"
 	"github.com/Wei-Shaw/sub2api/ent/authidentitychannel"
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -557,6 +558,15 @@ type adminServiceImpl struct {
 	userSubRepo          UserSubscriptionRepository
 	privacyClientFactory PrivacyClientFactory
 	runtimeBlocker       AccountRuntimeBlocker
+
+	// importDedupEnabled: 导入 anthropic 账号时按 account_uuid 去重（默认 true，安全）。
+	// 由 server 启动时根据 config.Account.ImportDedupEnabled 通过 SetImportDedupEnabled 覆盖。
+	importDedupEnabled bool
+}
+
+// SetImportDedupEnabled 配置导入去重开关（默认 true）。server 启动时按 config 注入。
+func (s *adminServiceImpl) SetImportDedupEnabled(enabled bool) {
+	s.importDedupEnabled = enabled
 }
 
 type userGroupRateBatchReader interface {
@@ -603,7 +613,45 @@ func NewAdminService(
 		userSubRepo:          userSubRepo,
 		privacyClientFactory: privacyClientFactory,
 		runtimeBlocker:       runtimeBlocker,
+		importDedupEnabled:   true, // 默认开启去重，ProvideAdminService 按 config 覆盖
 	}
+}
+
+// ProvideAdminService 包装 NewAdminService，按 config 应用防封开关（导入去重）。
+// 用于 wire 注入；默认 importDedupEnabled=true，config 可显式关闭。
+func ProvideAdminService(
+	cfg *config.Config,
+	userRepo UserRepository,
+	groupRepo GroupRepository,
+	accountRepo AccountRepository,
+	proxyRepo ProxyRepository,
+	apiKeyRepo APIKeyRepository,
+	redeemCodeRepo RedeemCodeRepository,
+	userGroupRateRepo UserGroupRateRepository,
+	userRPMCache UserRPMCache,
+	billingCacheService *BillingCacheService,
+	proxyProber ProxyExitInfoProber,
+	proxyLatencyCache ProxyLatencyCache,
+	authCacheInvalidator APIKeyAuthCacheInvalidator,
+	entClient *dbent.Client,
+	settingService *SettingService,
+	defaultSubAssigner DefaultSubscriptionAssigner,
+	userSubRepo UserSubscriptionRepository,
+	privacyClientFactory PrivacyClientFactory,
+	runtimeBlocker AccountRuntimeBlocker,
+) AdminService {
+	svc := NewAdminService(
+		userRepo, groupRepo, accountRepo, proxyRepo, apiKeyRepo, redeemCodeRepo,
+		userGroupRateRepo, userRPMCache, billingCacheService, proxyProber,
+		proxyLatencyCache, authCacheInvalidator, entClient, settingService,
+		defaultSubAssigner, userSubRepo, privacyClientFactory, runtimeBlocker,
+	)
+	if cfg != nil {
+		if impl, ok := svc.(*adminServiceImpl); ok {
+			impl.SetImportDedupEnabled(cfg.Account.ImportDedupEnabled)
+		}
+	}
+	return svc
 }
 
 // User management implementations
@@ -2635,6 +2683,35 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		}
 		account.LoadFactor = input.LoadFactor
 	}
+	// 防封：anthropic 账号按上游 account_uuid 去重。命中已存在记录则合并最新凭证/extra
+	// 并返回该账号，避免把同一上游账号重复导入成多条记录（重复记录会被调度劈裂、
+	// 摧毁 prompt cache 命中率，是 06-23/06-24 大批 429 的根因）。
+	if s.importDedupEnabled && account.Platform == PlatformAnthropic {
+		if uuid := AccountUpstreamIdentity(account); uuid != "" {
+			dups, derr := s.accountRepo.ListByUpstreamUUID(ctx, uuid)
+			if derr != nil {
+				return nil, derr
+			}
+			if len(dups) > 0 {
+				target := &dups[0]
+				if uerr := s.accountRepo.UpdateCredentials(ctx, target.ID, account.Credentials); uerr != nil {
+					return nil, uerr
+				}
+				if account.Extra != nil {
+					if uerr := s.accountRepo.UpdateExtra(ctx, target.ID, account.Extra); uerr != nil {
+						return nil, uerr
+					}
+				}
+				logger.LegacyPrintf("service.admin", "[ImportDedup] merged into existing account id=%d uuid=%s (skipped duplicate import)", target.ID, uuid)
+				refreshed, gerr := s.accountRepo.GetByID(ctx, target.ID)
+				if gerr != nil {
+					return target, nil
+				}
+				return refreshed, nil
+			}
+		}
+	}
+
 	if err := s.accountRepo.Create(ctx, account); err != nil {
 		return nil, err
 	}

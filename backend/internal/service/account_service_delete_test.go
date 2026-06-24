@@ -62,6 +62,10 @@ func (s *accountRepoStub) ListByUpstreamUUID(ctx context.Context, uuid string) (
 	panic("unexpected ListByUpstreamUUID call")
 }
 
+func (s *accountRepoStub) UpdateCredentials(ctx context.Context, id int64, credentials map[string]any) error {
+	panic("unexpected UpdateCredentials call")
+}
+
 func (s *accountRepoStub) ListCRSAccountIDs(ctx context.Context) (map[string]int64, error) {
 	panic("unexpected ListCRSAccountIDs call")
 }
