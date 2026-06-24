@@ -113,3 +113,15 @@ func TestValidatedTransport_ValidationErrorStopsRoundTrip(t *testing.T) {
 	require.ErrorIs(t, err, expectedErr)
 	require.Equal(t, int32(0), atomic.LoadInt32(&baseCalls))
 }
+
+func TestBuildTransportRequireProxyFailsFast(t *testing.T) {
+	// RequireProxy=true 且无代理：必须报错，绝不返回可直连的 transport。
+	_, err := buildTransport(Options{ProxyURL: "", RequireProxy: true})
+	require.Error(t, err, "RequireProxy with empty proxy must fail (avoid real-IP leak)")
+	require.Contains(t, err.Error(), "refusing direct connection")
+
+	// RequireProxy=false：保持旧行为，允许无代理直连。
+	tr, err := buildTransport(Options{ProxyURL: "", RequireProxy: false})
+	require.NoError(t, err)
+	require.NotNil(t, tr)
+}

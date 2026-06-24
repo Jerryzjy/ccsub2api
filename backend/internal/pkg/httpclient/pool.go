@@ -46,6 +46,7 @@ type Options struct {
 	InsecureSkipVerify    bool          // 是否跳过 TLS 证书验证（已禁用，不允许设置为 true）
 	ValidateResolvedIP    bool          // 是否校验解析后的 IP（防止 DNS Rebinding）
 	AllowPrivateHosts     bool          // 允许私有地址解析（与 ValidateResolvedIP 一起使用）
+	RequireProxy          bool          // 防封：true 时空/无效代理直接报错，禁止机房真实 IP 直连
 
 	// 可选的连接池参数（不设置则使用默认值）
 	MaxIdleConns        int // 最大空闲连接总数（默认 100）
@@ -131,6 +132,9 @@ func buildTransport(opts Options) (*http.Transport, error) {
 		return nil, err
 	}
 	if parsed == nil {
+		if opts.RequireProxy {
+			return nil, fmt.Errorf("proxy required for upstream but none configured; refusing direct connection to avoid real-IP leak")
+		}
 		return transport, nil
 	}
 
@@ -142,13 +146,14 @@ func buildTransport(opts Options) (*http.Transport, error) {
 }
 
 func buildClientKey(opts Options) string {
-	return fmt.Sprintf("%s|%s|%s|%t|%t|%t|%d|%d|%d",
+	return fmt.Sprintf("%s|%s|%s|%t|%t|%t|%t|%d|%d|%d",
 		strings.TrimSpace(opts.ProxyURL),
 		opts.Timeout.String(),
 		opts.ResponseHeaderTimeout.String(),
 		opts.InsecureSkipVerify,
 		opts.ValidateResolvedIP,
 		opts.AllowPrivateHosts,
+		opts.RequireProxy,
 		opts.MaxIdleConns,
 		opts.MaxIdleConnsPerHost,
 		opts.MaxConnsPerHost,
