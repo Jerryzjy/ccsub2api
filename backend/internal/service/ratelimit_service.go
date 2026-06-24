@@ -92,6 +92,39 @@ func NewRateLimitService(accountRepo AccountRepository, usageRepo UsageLogReposi
 	}
 }
 
+// setRateLimitedWithSiblings 对账号打限流冷却，并在 cooldown_by_uuid 开启时
+// 联动同一上游 account_uuid 的所有记录一起冷却。
+//
+// 防封：同一上游账号被重复导入成多条记录时，若只冷却命中的那条，调度器会立刻
+// 切到同 UUID 的另一条继续撞上游限流，等于没冷却。联动冷却确保一次 429 让该上游
+// 账号的全部代理记录都退避。返回首条（account 本身）的 set 错误。
+func (s *RateLimitService) setRateLimitedWithSiblings(ctx context.Context, account *Account, resetAt time.Time) error {
+	primaryErr := s.accountRepo.SetRateLimited(ctx, account.ID, resetAt)
+	if s.cfg == nil || !s.cfg.Gateway.Scheduling.CooldownByUUID {
+		return primaryErr
+	}
+	uuid := AccountUpstreamIdentity(account)
+	if uuid == "" {
+		return primaryErr
+	}
+	siblings, err := s.accountRepo.ListByUpstreamUUID(ctx, uuid)
+	if err != nil {
+		slog.Warn("cooldown_siblings_list_failed", "account_id", account.ID, "uuid", uuid, "error", err)
+		return primaryErr
+	}
+	for i := range siblings {
+		if siblings[i].ID == account.ID {
+			continue
+		}
+		if serr := s.accountRepo.SetRateLimited(ctx, siblings[i].ID, resetAt); serr != nil {
+			slog.Warn("cooldown_sibling_failed", "sibling_id", siblings[i].ID, "uuid", uuid, "error", serr)
+		} else {
+			slog.Info("cooldown_sibling_applied", "sibling_id", siblings[i].ID, "uuid", uuid, "reset_at", resetAt)
+		}
+	}
+	return primaryErr
+}
+
 // SetTimeoutCounterCache 设置超时计数器缓存（可选依赖）
 func (s *RateLimitService) SetTimeoutCounterCache(cache TimeoutCounterCache) {
 	s.timeoutCounterCache = cache
@@ -898,7 +931,7 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 		s.persistOpenAICodexSnapshot(ctx, account, headers)
 		if resetAt := s.calculateOpenAI429ResetTime(headers); resetAt != nil {
 			s.notifyAccountSchedulingBlocked(account, *resetAt, "429")
-			if err := s.accountRepo.SetRateLimited(ctx, account.ID, *resetAt); err != nil {
+			if err := s.setRateLimitedWithSiblings(ctx, account, *resetAt); err != nil {
 				slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
 				return
 			}
@@ -910,7 +943,7 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 	// 2. Anthropic 平台：尝试解析 per-window 头（5h / 7d），选择实际触发的窗口
 	if result := calculateAnthropic429ResetTime(headers); result != nil {
 		s.notifyAccountSchedulingBlocked(account, result.resetAt, "429")
-		if err := s.accountRepo.SetRateLimited(ctx, account.ID, result.resetAt); err != nil {
+		if err := s.setRateLimitedWithSiblings(ctx, account, result.resetAt); err != nil {
 			slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
 			return
 		}
@@ -940,7 +973,7 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 			if resetAt := parseOpenAIRateLimitResetTime(responseBody); resetAt != nil {
 				resetTime := time.Unix(*resetAt, 0)
 				s.notifyAccountSchedulingBlocked(account, resetTime, "429")
-				if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetTime); err != nil {
+				if err := s.setRateLimitedWithSiblings(ctx, account, resetTime); err != nil {
 					slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
 					return
 				}
@@ -952,7 +985,7 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 			if resetAt := ParseGeminiRateLimitResetTime(responseBody); resetAt != nil {
 				resetTime := time.Unix(*resetAt, 0)
 				s.notifyAccountSchedulingBlocked(account, resetTime, "429")
-				if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetTime); err != nil {
+				if err := s.setRateLimitedWithSiblings(ctx, account, resetTime); err != nil {
 					slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
 					return
 				}
@@ -988,7 +1021,7 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 
 	// 标记限流状态
 	s.notifyAccountSchedulingBlocked(account, resetAt, "429")
-	if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetAt); err != nil {
+	if err := s.setRateLimitedWithSiblings(ctx, account, resetAt); err != nil {
 		slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
 		return
 	}
@@ -1013,7 +1046,7 @@ func (s *RateLimitService) apply429FallbackRateLimit(ctx context.Context, accoun
 	resetAt := time.Now().Add(cooldown)
 	slog.Warn("rate_limit_429_fallback_used", "account_id", account.ID, "platform", account.Platform, "reason", reason, "using_default", cooldown.String())
 	s.notifyAccountSchedulingBlocked(account, resetAt, "429_fallback")
-	if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetAt); err != nil {
+	if err := s.setRateLimitedWithSiblings(ctx, account, resetAt); err != nil {
 		slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
 	}
 }
@@ -1197,7 +1230,7 @@ func (s *RateLimitService) persistAnthropicExhaustedWindowLimit(ctx context.Cont
 	}
 
 	s.notifyAccountSchedulingBlocked(account, limit.resetAt, limit.reason)
-	if err := s.accountRepo.SetRateLimited(ctx, account.ID, limit.resetAt); err != nil {
+	if err := s.setRateLimitedWithSiblings(ctx, account, limit.resetAt); err != nil {
 		slog.Warn("anthropic_window_rate_limit_set_failed",
 			"account_id", account.ID,
 			"window", limit.window,
