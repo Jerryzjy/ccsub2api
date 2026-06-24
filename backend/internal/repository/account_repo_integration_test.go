@@ -180,6 +180,33 @@ func (s *AccountRepoSuite) TestUpdate_SyncSchedulerSnapshotOnCredentialsChange()
 	s.Require().Equal("gpt-5.2", mapping["gpt-5"])
 }
 
+func (s *AccountRepoSuite) TestListByUpstreamUUID() {
+	mustCreateAccount(s.T(), s.client, &service.Account{
+		Name: "dup-a", Platform: "anthropic", Type: "oauth",
+		Credentials: map[string]any{"account_uuid": "uuid-X"},
+	})
+	mustCreateAccount(s.T(), s.client, &service.Account{
+		Name: "dup-b", Platform: "anthropic", Type: "oauth",
+		Credentials: map[string]any{"account_uuid": "uuid-X"},
+	})
+	mustCreateAccount(s.T(), s.client, &service.Account{
+		Name: "solo", Platform: "anthropic", Type: "oauth",
+		Credentials: map[string]any{"account_uuid": "uuid-Y"},
+	})
+
+	got, err := s.repo.ListByUpstreamUUID(s.ctx, "uuid-X")
+	s.Require().NoError(err)
+	s.Require().Len(got, 2, "two records share uuid-X")
+
+	none, err := s.repo.ListByUpstreamUUID(s.ctx, "missing")
+	s.Require().NoError(err)
+	s.Require().Empty(none)
+
+	empty, err := s.repo.ListByUpstreamUUID(s.ctx, "")
+	s.Require().NoError(err)
+	s.Require().Empty(empty, "empty uuid returns nothing without querying")
+}
+
 func (s *AccountRepoSuite) TestDelete() {
 	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "to-delete"})
 

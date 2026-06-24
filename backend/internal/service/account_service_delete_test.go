@@ -58,6 +58,10 @@ func (s *accountRepoStub) FindByExtraField(ctx context.Context, key string, valu
 	panic("unexpected FindByExtraField call")
 }
 
+func (s *accountRepoStub) ListByUpstreamUUID(ctx context.Context, uuid string) ([]Account, error) {
+	panic("unexpected ListByUpstreamUUID call")
+}
+
 func (s *accountRepoStub) ListCRSAccountIDs(ctx context.Context) (map[string]int64, error) {
 	panic("unexpected ListCRSAccountIDs call")
 }

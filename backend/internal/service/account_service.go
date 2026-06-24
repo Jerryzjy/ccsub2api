@@ -31,6 +31,9 @@ type AccountRepository interface {
 	GetByCRSAccountID(ctx context.Context, crsAccountID string) (*Account, error)
 	// FindByExtraField 根据 extra 字段中的键值对查找账号
 	FindByExtraField(ctx context.Context, key string, value any) ([]Account, error)
+	// ListByUpstreamUUID 返回 credentials.account_uuid 匹配的所有未删除账号
+	// （可能多条=重复导入）。用于按上游身份去重/折叠/冷却联动。
+	ListByUpstreamUUID(ctx context.Context, uuid string) ([]Account, error)
 	// ListCRSAccountIDs returns a map of crs_account_id -> local account ID
 	// for all accounts that have been synced from CRS.
 	ListCRSAccountIDs(ctx context.Context) (map[string]int64, error)

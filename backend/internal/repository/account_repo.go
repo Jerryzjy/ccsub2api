@@ -287,6 +287,26 @@ func (r *accountRepository) GetByCRSAccountID(ctx context.Context, crsAccountID 
 	return &accounts[0], nil
 }
 
+// ListByUpstreamUUID 返回 credentials.account_uuid 匹配的所有未删除账号（多条=重复导入）。
+// 使用 sqljson.ValueEQ 生成 JSON 路径过滤，与 GetByCRSAccountID 同范式。
+func (r *accountRepository) ListByUpstreamUUID(ctx context.Context, uuid string) ([]service.Account, error) {
+	if strings.TrimSpace(uuid) == "" {
+		return nil, nil
+	}
+	ms, err := r.client.Account.Query().
+		Where(
+			dbaccount.DeletedAtIsNil(),
+			func(s *entsql.Selector) {
+				s.Where(sqljson.ValueEQ(dbaccount.FieldCredentials, uuid, sqljson.Path("account_uuid")))
+			},
+		).
+		All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return r.accountsToService(ctx, ms)
+}
+
 func (r *accountRepository) ListCRSAccountIDs(ctx context.Context) (map[string]int64, error) {
 	rows, err := r.sql.QueryContext(ctx, `
 		SELECT id, extra->>'crs_account_id'

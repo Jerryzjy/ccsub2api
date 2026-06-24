@@ -71,6 +71,10 @@ func (m *mockAccountRepoForGemini) FindByExtraField(ctx context.Context, key str
 	return nil, nil
 }
 
+func (m *mockAccountRepoForGemini) ListByUpstreamUUID(ctx context.Context, uuid string) ([]Account, error) {
+	return nil, nil
+}
+
 func (m *mockAccountRepoForGemini) ListCRSAccountIDs(ctx context.Context) (map[string]int64, error) {
 	return nil, nil
 }
