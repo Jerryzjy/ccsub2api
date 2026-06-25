@@ -2219,6 +2219,18 @@ func (a *Account) GetWindowCostLimit() float64 {
 	return 0
 }
 
+// GetWindowUtilizationLimit 获取 5h 窗口利用率比例阈值（0~1.0，如 0.8 = 80%）
+// 返回 0 表示未启用
+func (a *Account) GetWindowUtilizationLimit() float64 {
+	if a.Extra == nil {
+		return 0
+	}
+	if v, ok := a.Extra["window_utilization_limit"]; ok {
+		return parseExtraFloat64(v)
+	}
+	return 0
+}
+
 // GetWindowCostStickyReserve 获取粘性会话预留额度（美元）
 // 默认值为 10
 func (a *Account) GetWindowCostStickyReserve() float64 {
@@ -2408,6 +2420,13 @@ func (a *Account) checkUtilizationSchedulability() int {
 	limitRatio := parseExtraFloat64(a.Extra["window_utilization_limit"])
 	if limitRatio <= 0 {
 		return -1 // 未启用
+	}
+
+	// 窗口已过期：上游 5h 窗口到点后额度自动重置，已存的 utilization 快照随之作废。
+	// 此时直接放行重新调度，避免账号因停调度而无流量刷新、利用率永久停在高位被软封印。
+	// 仅当窗口确实存在且已到期才放行；窗口未初始化（End=nil）不视为过期。
+	if a.SessionWindowEnd != nil && !time.Now().Before(*a.SessionWindowEnd) {
+		return int(WindowCostSchedulable)
 	}
 
 	// 读取 Anthropic 返回的实时 utilization

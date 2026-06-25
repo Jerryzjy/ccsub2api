@@ -2838,13 +2838,21 @@ func (s *GatewayService) isAccountSchedulableForWindowCost(ctx context.Context, 
 		return true
 	}
 
-	limit := account.GetWindowCostLimit()
-	if limit <= 0 {
+	// utilization 比例模式（window_utilization_limit）与固定美元模式
+	// （window_cost_limit）互斥。两者都未配置时才视为未启用，直接放行。
+	if account.GetWindowUtilizationLimit() <= 0 && account.GetWindowCostLimit() <= 0 {
 		return true // 未启用窗口费用限制
 	}
 
-	// 尝试从缓存获取窗口费用
 	var currentCost float64
+
+	// utilization 模式只依赖 Extra 中的实时利用率，无需查询/缓存窗口费用，
+	// 直接进入判定（CheckWindowCostSchedulability 会优先走 utilization 分支）。
+	if account.GetWindowUtilizationLimit() > 0 {
+		goto checkSchedulability
+	}
+
+	// 尝试从缓存获取窗口费用
 	if cost, ok := windowCostFromPrefetchContext(ctx, account.ID); ok {
 		currentCost = cost
 		goto checkSchedulability
