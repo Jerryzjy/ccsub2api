@@ -5246,6 +5246,15 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
 			}
+			// 传输层错误（代理/上游在收到响应前断流，如 EOF / connection reset）可安全
+			// 重试：请求未获响应、幂等。退避后重试，仅当重试耗尽才返回 502。
+			if isRetriableTransportError(err) && attempt < maxRetryAttempts {
+				logger.LegacyPrintf("service.gateway", "[Retry] upstream transport error account=%d attempt=%d/%d: %s", account.ID, attempt, maxRetryAttempts, sanitizeUpstreamErrorMessage(err.Error()))
+				if sleepErr := sleepWithContext(ctx, retryBackoffDelay(attempt)); sleepErr != nil {
+					return nil, sleepErr
+				}
+				continue
+			}
 			// Ensure the client receives an error response (handlers assume Forward writes on non-failover errors).
 			safeErr := sanitizeUpstreamErrorMessage(err.Error())
 			setOpsUpstreamError(c, 0, safeErr, "")
@@ -5823,6 +5832,15 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 		if err != nil {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
+			}
+			// 传输层错误（收到响应前断流，如 EOF / connection reset）可安全重试：尚未
+			// 开始读流、请求幂等。退避后重试，仅当重试耗尽才返回 502。
+			if isRetriableTransportError(err) && attempt < maxRetryAttempts {
+				logger.LegacyPrintf("service.gateway", "[Retry] upstream transport error (stream) account=%d attempt=%d/%d: %s", account.ID, attempt, maxRetryAttempts, sanitizeUpstreamErrorMessage(err.Error()))
+				if sleepErr := sleepWithContext(ctx, retryBackoffDelay(attempt)); sleepErr != nil {
+					return nil, sleepErr
+				}
+				continue
 			}
 			safeErr := sanitizeUpstreamErrorMessage(err.Error())
 			setOpsUpstreamError(c, 0, safeErr, "")
