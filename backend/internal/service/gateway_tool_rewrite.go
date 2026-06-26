@@ -355,6 +355,26 @@ func applyToolsLastCacheBreakpoint(body []byte) []byte {
 		return body
 	}
 
+	// 先剥离所有 defer_loading=true 工具上已存在的 cache_control。Anthropic 禁止
+	// 同一工具同时带 defer_loading 和 cache_control，而客户端（Claude Code 对 MCP
+	// 工具）可能自带 cache_control 到 defer_loading 工具上——本函数只负责"不往
+	// defer_loading 工具打新断点"，并不会清掉客户端自带的，故必须在此显式剥离，
+	// 否则上游返回 "cannot have both defer_loading and cache_control" 400。
+	// 从后往前删，索引不受影响（同一数组内删字段不改其它元素索引，但保持习惯）。
+	for i := len(arr) - 1; i >= 0; i-- {
+		if !arr[i].Get("custom.defer_loading").Bool() {
+			continue
+		}
+		if !arr[i].Get("cache_control").Exists() {
+			continue
+		}
+		if next, err := sjson.DeleteBytes(body, fmt.Sprintf("tools.%d.cache_control", i)); err == nil {
+			body = next
+		}
+	}
+	// body 已变，重新取数组用于后续断点定位。
+	arr = gjson.GetBytes(body, "tools").Array()
+
 	// 从后往前找最后一个不带 defer_loading=true 的工具作为断点位置。
 	lastIdx := -1
 	for i := len(arr) - 1; i >= 0; i-- {

@@ -1,11 +1,43 @@
 package service
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
+
+// backfillDanglingToolDeclarations 兜底修复"被 tool_use / tool_choice 引用、但没在
+// tools[] 声明"的悬空工具引用：为每个悬空工具名补一个最小 schema 的占位声明，
+// 使请求自洽，避免上游返回
+// "Tool reference 'X' not found in available tools"（invalid_request_error）。
+//
+// 悬空根因通常在客户端/中转层（跨轮次发送不一致的工具集），与本仓的工具名混淆无关，
+// 且混淆路径和透传路径都会中招——故此兜底应在所有 OAuth 转发路径上、在工具名混淆
+// 之前调用，保证补进的真名也能被后续混淆一并改写、保持一致。
+//
+// 占位 schema 用 {"type":"object"}（Anthropic 接受的最宽松输入约束）。无悬空时返回
+// 原 body 不变。
+func backfillDanglingToolDeclarations(body []byte) []byte {
+	if len(body) == 0 {
+		return body
+	}
+	dangling := findDanglingToolRefs(body)
+	if len(dangling) == 0 {
+		return body
+	}
+
+	out := body
+	for _, name := range dangling {
+		decl := fmt.Sprintf(`{"name":%q,"input_schema":{"type":"object"}}`, name)
+		if next, err := sjson.SetRawBytes(out, "tools.-1", []byte(decl)); err == nil {
+			out = next
+		}
+	}
+	return out
+}
 
 // findDanglingToolRefs 扫描 Anthropic /v1/messages body，找出"被 tool_use /
 // tool_choice 引用、但没有在 tools 数组声明"的工具名（悬空引用）。

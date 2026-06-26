@@ -5055,6 +5055,16 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	isClaudeCode := IsClaudeCodeClient(ctx) || isClaudeCodeClient(c.GetHeader("User-Agent"), parsed.MetadataUserID)
 	shouldMimicClaudeCode := account.IsOAuth() && !isClaudeCode
 
+	// 兜底：补声明客户端发来的悬空工具引用（tool_use/tool_choice 引用了未在 tools[]
+	// 声明的工具），避免上游 "Tool reference 'X' not found in available tools" 400。
+	// 悬空根因在客户端/中转层，与混淆无关，混淆路径和透传路径都会中招，故对所有 OAuth
+	// 账号、在混淆之前统一执行（补进的真名会被后续混淆一并改写、保持一致）。
+	if account.IsOAuth() {
+		if err := replaceBody(backfillDanglingToolDeclarations(body)); err != nil {
+			return nil, err
+		}
+	}
+
 	if shouldMimicClaudeCode {
 		// 与 Parrot 对齐：OAuth 账号无条件重写 system（即使客户端已发了 Claude Code
 		// 风格的 system prompt）。原因：第三方工具（opencode 等）会发 "You are Claude
