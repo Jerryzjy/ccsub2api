@@ -72,7 +72,16 @@ const isUtilizationMode = computed(() => {
 })
 const utilizationLimit = computed(() => Number(extra.value.window_utilization_limit || 0))
 const utilizationReserve = computed(() => Number(extra.value.window_utilization_reserve || 0.1))
-const currentUtilization = computed(() => Number(extra.value.session_window_utilization || 0))
+// 5h 窗口过期后旧的利用率快照作废，归零显示，与 Usage Windows 及后端调度判定保持一致。
+const fiveHourWindowExpired = computed(() => {
+  const end = props.account.session_window_end
+  if (!end) return false
+  return new Date(end).getTime() <= Date.now()
+})
+const currentUtilization = computed(() => {
+  if (fiveHourWindowExpired.value) return 0
+  return Number(extra.value.session_window_utilization || 0)
+})
 
 const showWindowCost = computed(() =>
   isAnthropicOAuthOrSetupToken.value && (
