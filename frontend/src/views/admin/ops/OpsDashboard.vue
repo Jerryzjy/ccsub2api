@@ -93,6 +93,17 @@
         />
       </div>
 
+      <!-- Row: Account Pool Quota Monitor -->
+      <div v-if="opsEnabled && !(loading && !hasLoadedOnce)" class="grid grid-cols-1 gap-6">
+        <div class="min-h-[360px]">
+          <OpsAccountQuotaCard
+            :platform-filter="platform"
+            :group-id-filter="groupId"
+            :refresh-token="dashboardRefreshToken"
+          />
+        </div>
+      </div>
+
       <!-- Row: Cache Hit Rate by client type -->
       <div v-if="opsEnabled && !(loading && !hasLoadedOnce)" class="grid grid-cols-1 gap-6">
         <div class="min-h-[360px]">
@@ -177,6 +188,7 @@ import OpsSwitchRateTrendChart from './components/OpsSwitchRateTrendChart.vue'
 import OpsAlertEventsCard from './components/OpsAlertEventsCard.vue'
 import OpsOpenAITokenStatsCard from './components/OpsOpenAITokenStatsCard.vue'
 import OpsCacheHitRateCard from './components/OpsCacheHitRateCard.vue'
+import OpsAccountQuotaCard from './components/OpsAccountQuotaCard.vue'
 import OpsSystemLogTable from './components/OpsSystemLogTable.vue'
 import OpsRequestDetailsModal, { type OpsRequestDetailsPreset } from './components/OpsRequestDetailsModal.vue'
 import OpsSettingsDialog from './components/OpsSettingsDialog.vue'

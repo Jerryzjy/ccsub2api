@@ -286,6 +286,38 @@ func (h *OpsHandler) GetDashboardCacheHitRate(c *gin.Context) {
 	response.Success(c, data)
 }
 
+// GetDashboardAccountQuota returns the Claude account-pool quota monitor snapshot:
+// availability counts, capacity/load ratios, pool health and a 4h recovery forecast.
+// GET /api/v1/admin/ops/dashboard/account-quota
+func (h *OpsHandler) GetDashboardAccountQuota(c *gin.Context) {
+	if h.opsService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Ops service not available")
+		return
+	}
+	if err := h.opsService.RequireMonitoringEnabled(c.Request.Context()); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	platform := strings.TrimSpace(c.Query("platform"))
+	var groupID *int64
+	if v := strings.TrimSpace(c.Query("group_id")); v != "" {
+		id, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || id <= 0 {
+			response.BadRequest(c, "Invalid group_id")
+			return
+		}
+		groupID = &id
+	}
+
+	data, err := h.opsService.GetAccountQuotaMonitor(c.Request.Context(), platform, groupID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, data)
+}
+
 func parseOpsOpenAITokenStatsFilter(c *gin.Context) (*service.OpsOpenAITokenStatsFilter, error) {
 	if c == nil {
 		return nil, fmt.Errorf("invalid request")

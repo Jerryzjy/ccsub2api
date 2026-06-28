@@ -1014,6 +1014,51 @@ export async function getCacheHitRate(
   return data
 }
 
+export type OpsAccountPoolHealth = 'sustainable' | 'tight' | 'depleted'
+
+export interface OpsAccountQuotaRecoveryBucket {
+  after_seconds: number
+  account_count: number
+  restored_concurrency: number
+}
+
+export interface OpsAccountQuotaReport {
+  platform: string
+  group_id: number | null
+  generated_at: string
+
+  total_accounts: number
+  available_accounts: number
+  in_use_accounts: number
+  idle_accounts: number
+  exhausted_accounts: number
+  full_idle_accounts: number
+  reauth_accounts: number
+  error_accounts: number
+
+  remaining_capacity_ratio: number
+  pool_load_ratio: number
+  saturation_multiple: number | null
+  health: OpsAccountPoolHealth
+  depletion_eta_seconds: number | null
+
+  recovery_buckets: OpsAccountQuotaRecoveryBucket[]
+}
+
+export async function getAccountQuotaMonitor(
+  params: {
+  platform?: string
+  group_id?: number | null
+  },
+  options: OpsRequestOptions = {}
+): Promise<OpsAccountQuotaReport> {
+  const { data } = await apiClient.get<OpsAccountQuotaReport>('/admin/ops/dashboard/account-quota', {
+    params,
+    signal: options.signal
+  })
+  return data
+}
+
 export async function getDashboardSnapshotV2(
   params: {
   time_range?: '5m' | '30m' | '1h' | '6h' | '24h'
@@ -1339,6 +1384,7 @@ export const opsAPI = {
   getDashboardSnapshotV2,
   getDashboardOverview,
   getCacheHitRate,
+  getAccountQuotaMonitor,
   getThroughputTrend,
   getLatencyHistogram,
   getErrorTrend,
