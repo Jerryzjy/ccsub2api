@@ -2472,6 +2472,130 @@
           </div>
         </div>
 
+        <!-- Outbound Header Override -->
+        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+          <div class="mb-3 flex items-center justify-between">
+            <div>
+              <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.outboundHeaders.label') }}</label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.quotaControl.outboundHeaders.hint') }}
+              </p>
+            </div>
+            <button
+              type="button"
+              @click="outboundHeadersEnabled = !outboundHeadersEnabled"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                outboundHeadersEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  outboundHeadersEnabled ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+
+          <div v-if="outboundHeadersEnabled" class="space-y-4">
+            <p class="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
+              {{ t('admin.accounts.quotaControl.outboundHeaders.warning') }}
+            </p>
+
+            <!-- Overrides (key/value rows) -->
+            <div>
+              <label class="input-label">{{ t('admin.accounts.quotaControl.outboundHeaders.overridesLabel') }}</label>
+              <div class="space-y-2">
+                <div v-for="(row, idx) in headerOverrideRows" :key="idx" class="flex gap-2">
+                  <input
+                    v-model="row.name"
+                    type="text"
+                    class="input flex-1"
+                    :placeholder="t('admin.accounts.quotaControl.outboundHeaders.namePlaceholder')"
+                  />
+                  <input
+                    v-model="row.value"
+                    type="text"
+                    class="input flex-1"
+                    :placeholder="t('admin.accounts.quotaControl.outboundHeaders.valuePlaceholder')"
+                  />
+                  <button
+                    type="button"
+                    class="btn btn-secondary px-3"
+                    @click="headerOverrideRows.splice(idx, 1)"
+                  >
+                    &times;
+                  </button>
+                </div>
+              </div>
+              <button
+                type="button"
+                class="mt-2 text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400"
+                @click="headerOverrideRows.push({ name: '', value: '' })"
+              >
+                + {{ t('admin.accounts.quotaControl.outboundHeaders.addOverride') }}
+              </button>
+            </div>
+
+            <!-- Removes (header names) -->
+            <div>
+              <label class="input-label">{{ t('admin.accounts.quotaControl.outboundHeaders.removesLabel') }}</label>
+              <div class="space-y-2">
+                <div v-for="(row, idx) in headerRemoveRows" :key="idx" class="flex gap-2">
+                  <input
+                    v-model="row.name"
+                    type="text"
+                    class="input flex-1"
+                    :placeholder="t('admin.accounts.quotaControl.outboundHeaders.namePlaceholder')"
+                  />
+                  <button
+                    type="button"
+                    class="btn btn-secondary px-3"
+                    @click="headerRemoveRows.splice(idx, 1)"
+                  >
+                    &times;
+                  </button>
+                </div>
+              </div>
+              <button
+                type="button"
+                class="mt-2 text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400"
+                @click="headerRemoveRows.push({ name: '' })"
+              >
+                + {{ t('admin.accounts.quotaControl.outboundHeaders.addRemove') }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Omit Billing Attribution -->
+        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+          <div class="flex items-center justify-between">
+            <div>
+              <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.omitBillingAttribution.label') }}</label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.quotaControl.omitBillingAttribution.hint') }}
+              </p>
+            </div>
+            <button
+              type="button"
+              @click="omitBillingAttribution = !omitBillingAttribution"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                omitBillingAttribution ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  omitBillingAttribution ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+        </div>
+
         <!-- TLS Fingerprint -->
         <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
           <div class="flex items-center justify-between">
@@ -3715,6 +3839,10 @@ const rpmLimitEnabled = ref(false)
 const baseRpm = ref<number | null>(null)
 const rpmStrategy = ref<'tiered' | 'sticky_exempt'>('tiered')
 const rpmStickyBuffer = ref<number | null>(null)
+const outboundHeadersEnabled = ref(false)
+const headerOverrideRows = ref<{ name: string; value: string }[]>([])
+const headerRemoveRows = ref<{ name: string }[]>([])
+const omitBillingAttribution = ref(false)
 const tpmLimitEnabled = ref(false)
 const baseTpm = ref<number | null>(null)
 const tpmStrategy = ref<'tiered' | 'sticky_exempt'>('tiered')
@@ -4419,6 +4547,10 @@ const resetForm = () => {
   baseRpm.value = null
   rpmStrategy.value = 'tiered'
   rpmStickyBuffer.value = null
+  outboundHeadersEnabled.value = false
+  headerOverrideRows.value = []
+  headerRemoveRows.value = []
+  omitBillingAttribution.value = false
   tpmLimitEnabled.value = false
   baseTpm.value = null
   tpmStrategy.value = 'tiered'
@@ -5494,6 +5626,27 @@ const handleAnthropicExchange = async (authCode: string) => {
       }
     }
 
+    // Outbound header override settings
+    if (outboundHeadersEnabled.value) {
+      const overrides: Record<string, string> = {}
+      for (const row of headerOverrideRows.value) {
+        const name = row.name.trim()
+        if (name) overrides[name] = row.value
+      }
+      const removes: string[] = []
+      for (const row of headerRemoveRows.value) {
+        const name = row.name.trim()
+        if (name) removes.push(name)
+      }
+      if (Object.keys(overrides).length > 0) extra.outbound_header_overrides = overrides
+      if (removes.length > 0) extra.outbound_header_removes = removes
+    }
+
+    // Omit billing attribution
+    if (omitBillingAttribution.value) {
+      extra.omit_billing_attribution = true
+    }
+
     // UMQ mode（独立于 RPM）
     if (userMsgQueueMode.value) {
       extra.user_msg_queue_mode = userMsgQueueMode.value
@@ -5630,6 +5783,27 @@ const handleCookieAuth = async (sessionKey: string) => {
           if (tpmStickyBuffer.value != null && tpmStickyBuffer.value > 0) {
             extra.tpm_sticky_buffer = tpmStickyBuffer.value
           }
+        }
+
+        // Outbound header override settings
+        if (outboundHeadersEnabled.value) {
+          const overrides: Record<string, string> = {}
+          for (const row of headerOverrideRows.value) {
+            const name = row.name.trim()
+            if (name) overrides[name] = row.value
+          }
+          const removes: string[] = []
+          for (const row of headerRemoveRows.value) {
+            const name = row.name.trim()
+            if (name) removes.push(name)
+          }
+          if (Object.keys(overrides).length > 0) extra.outbound_header_overrides = overrides
+          if (removes.length > 0) extra.outbound_header_removes = removes
+        }
+
+        // Omit billing attribution
+        if (omitBillingAttribution.value) {
+          extra.omit_billing_attribution = true
         }
 
         // UMQ mode（独立于 RPM）

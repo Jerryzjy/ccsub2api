@@ -1157,6 +1157,132 @@
         </div>
       </div>
 
+      <!-- Outbound Header Override (适用于任意账号类型) -->
+      <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div class="mb-3 flex items-center justify-between">
+          <label
+            id="bulk-edit-outbound-headers-label"
+            class="input-label mb-0"
+            for="bulk-edit-outbound-headers-enabled"
+          >
+            {{ t('admin.accounts.quotaControl.outboundHeaders.label') }}
+          </label>
+          <input
+            v-model="enableOutboundHeaders"
+            id="bulk-edit-outbound-headers-enabled"
+            type="checkbox"
+            aria-controls="bulk-edit-outbound-headers-body"
+            class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+          />
+        </div>
+
+        <div
+          id="bulk-edit-outbound-headers-body"
+          :class="!enableOutboundHeaders && 'pointer-events-none opacity-50'"
+          role="group"
+          aria-labelledby="bulk-edit-outbound-headers-label"
+        >
+          <p class="mb-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
+            {{ t('admin.accounts.quotaControl.outboundHeaders.warning') }}
+          </p>
+
+          <div class="mb-3">
+            <label class="input-label text-xs">{{ t('admin.accounts.quotaControl.outboundHeaders.overridesLabel') }}</label>
+            <div class="space-y-2">
+              <div v-for="(row, idx) in headerOverrideRows" :key="idx" class="flex gap-2">
+                <input
+                  v-model="row.name"
+                  type="text"
+                  class="input flex-1"
+                  :placeholder="t('admin.accounts.quotaControl.outboundHeaders.namePlaceholder')"
+                />
+                <input
+                  v-model="row.value"
+                  type="text"
+                  class="input flex-1"
+                  :placeholder="t('admin.accounts.quotaControl.outboundHeaders.valuePlaceholder')"
+                />
+                <button type="button" class="btn btn-secondary px-3" @click="headerOverrideRows.splice(idx, 1)">&times;</button>
+              </div>
+            </div>
+            <button
+              type="button"
+              class="mt-2 text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400"
+              @click="headerOverrideRows.push({ name: '', value: '' })"
+            >
+              + {{ t('admin.accounts.quotaControl.outboundHeaders.addOverride') }}
+            </button>
+          </div>
+
+          <div>
+            <label class="input-label text-xs">{{ t('admin.accounts.quotaControl.outboundHeaders.removesLabel') }}</label>
+            <div class="space-y-2">
+              <div v-for="(row, idx) in headerRemoveRows" :key="idx" class="flex gap-2">
+                <input
+                  v-model="row.name"
+                  type="text"
+                  class="input flex-1"
+                  :placeholder="t('admin.accounts.quotaControl.outboundHeaders.namePlaceholder')"
+                />
+                <button type="button" class="btn btn-secondary px-3" @click="headerRemoveRows.splice(idx, 1)">&times;</button>
+              </div>
+            </div>
+            <button
+              type="button"
+              class="mt-2 text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400"
+              @click="headerRemoveRows.push({ name: '' })"
+            >
+              + {{ t('admin.accounts.quotaControl.outboundHeaders.addRemove') }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Omit Billing Attribution (适用于任意账号类型) -->
+      <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div class="mb-3 flex items-center justify-between">
+          <label
+            id="bulk-edit-omit-billing-label"
+            class="input-label mb-0"
+            for="bulk-edit-omit-billing-enabled"
+          >
+            {{ t('admin.accounts.quotaControl.omitBillingAttribution.label') }}
+          </label>
+          <input
+            v-model="enableOmitBilling"
+            id="bulk-edit-omit-billing-enabled"
+            type="checkbox"
+            aria-controls="bulk-edit-omit-billing-body"
+            class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+          />
+        </div>
+        <div
+          id="bulk-edit-omit-billing-body"
+          :class="!enableOmitBilling && 'pointer-events-none opacity-50'"
+          role="group"
+          aria-labelledby="bulk-edit-omit-billing-label"
+        >
+          <div class="flex items-center justify-between">
+            <span class="text-sm text-gray-700 dark:text-gray-300">{{ t('admin.accounts.quotaControl.omitBillingAttribution.hint') }}</span>
+            <button
+              type="button"
+              @click="omitBillingAttribution = !omitBillingAttribution"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                omitBillingAttribution ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  omitBillingAttribution ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- Groups -->
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <div class="mb-3 flex items-center justify-between">
@@ -1407,6 +1533,11 @@ const tpmLimitEnabled = ref(false)
 const bulkBaseTpm = ref<number | null>(null)
 const bulkTpmStrategy = ref<'tiered' | 'sticky_exempt'>('tiered')
 const bulkTpmStickyBuffer = ref<number | null>(null)
+const enableOutboundHeaders = ref(false)
+const headerOverrideRows = ref<{ name: string; value: string }[]>([])
+const headerRemoveRows = ref<{ name: string }[]>([])
+const enableOmitBilling = ref(false)
+const omitBillingAttribution = ref(false)
 const userMsgQueueMode = ref<string | null>(null)
 const umqModeOptions = computed(() => [
   { value: '', label: t('admin.accounts.quotaControl.rpmLimit.umqModeOff') },
@@ -1704,6 +1835,32 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
     updates.extra = extra
   }
 
+  // Outbound header override settings（写入 extra 字段）
+  if (enableOutboundHeaders.value) {
+    const extra = ensureExtra()
+    const overrides: Record<string, string> = {}
+    for (const row of headerOverrideRows.value) {
+      const name = row.name.trim()
+      if (name) overrides[name] = row.value
+    }
+    const removes: string[] = []
+    for (const row of headerRemoveRows.value) {
+      const name = row.name.trim()
+      if (name) removes.push(name)
+    }
+    // 显式写入（含空值）——JSONB merge 不会删 key，空值即为"清除"。
+    extra.outbound_header_overrides = overrides
+    extra.outbound_header_removes = removes
+    updates.extra = extra
+  }
+
+  // Omit billing attribution（写入 extra 字段）
+  if (enableOmitBilling.value) {
+    const extra = ensureExtra()
+    extra.omit_billing_attribution = omitBillingAttribution.value
+    updates.extra = extra
+  }
+
   // UMQ mode（独立于 RPM 保存）
   if (userMsgQueueMode.value !== null) {
     const umqExtra = ensureExtra()
@@ -1888,6 +2045,8 @@ watch(
       enableOpenAICompactModelMapping.value = false
       enableRpmLimit.value = false
       enableTpmLimit.value = false
+      enableOutboundHeaders.value = false
+      enableOmitBilling.value = false
 
       // Reset all values
       baseUrl.value = ''
@@ -1919,6 +2078,9 @@ watch(
       bulkBaseTpm.value = null
       bulkTpmStrategy.value = 'tiered'
       bulkTpmStickyBuffer.value = null
+      headerOverrideRows.value = []
+      headerRemoveRows.value = []
+      omitBillingAttribution.value = false
       userMsgQueueMode.value = null
 
       // Reset mixed channel warning state
