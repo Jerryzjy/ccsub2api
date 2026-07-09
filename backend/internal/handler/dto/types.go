@@ -219,6 +219,9 @@ type Account struct {
 	OutboundHeaderOverrides map[string]string `json:"outbound_header_overrides,omitempty"`
 	OutboundHeaderRemoves   []string          `json:"outbound_header_removes,omitempty"`
 
+	// 省略 billing attribution 块（对应 CLAUDE_CODE_ATTRIBUTION_HEADER=false）
+	OmitBillingAttribution *bool `json:"omit_billing_attribution,omitempty"`
+
 	// TLS指纹伪装（仅 Anthropic OAuth/SetupToken 账号有效）
 	// 从 extra 字段提取，方便前端显示和编辑
 	EnableTLSFingerprint    *bool  `json:"enable_tls_fingerprint,omitempty"`

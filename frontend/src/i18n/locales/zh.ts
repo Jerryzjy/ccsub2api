@@ -3796,6 +3796,10 @@ export default {
           label: '会话 ID 伪装',
           hint: '启用后将在 15 分钟内固定 metadata.user_id 中的 session ID，使上游认为请求来自同一会话'
         },
+        omitBillingAttribution: {
+          label: '省略 billing 归因头',
+          hint: '不发送 x-anthropic-billing-header 归因块，等同真实 Claude Code 的 CLAUDE_CODE_ATTRIBUTION_HEADER=false。可规避 cch/fp 指纹算错风险，并启用跨会话 prompt 缓存共享。仅对 Anthropic OAuth 账号有效'
+        },
         cacheTTLOverride: {
           label: '缓存 TTL 强制替换',
           hint: '将所有缓存创建 token 强制按指定的 TTL 类型（5分钟或1小时）计费',

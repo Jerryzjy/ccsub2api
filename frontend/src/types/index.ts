@@ -889,6 +889,9 @@ export interface Account {
   outbound_header_overrides?: Record<string, string> | null
   outbound_header_removes?: string[] | null
 
+  // 省略 billing attribution 块（对应 CLAUDE_CODE_ATTRIBUTION_HEADER=false）
+  omit_billing_attribution?: boolean | null
+
   // TLS指纹伪装（仅 Anthropic OAuth/SetupToken 账号有效）
   enable_tls_fingerprint?: boolean | null
   tls_fingerprint_profile_id?: number | null

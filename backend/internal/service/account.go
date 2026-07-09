@@ -1684,6 +1684,23 @@ func (a *Account) GetCustomBaseURL() string {
 	return a.GetExtraString("custom_base_url")
 }
 
+// IsBillingAttributionOmitted 检查是否省略 x-anthropic-billing-header 归因块。
+// 对应真实 Claude Code 的 CLAUDE_CODE_ATTRIBUTION_HEADER=false 行为：
+// 设置该环境变量的真实用户就是不发此块，因此"不发"与真实客户端不可区分。
+// 好处：绕开 cch/fp 指纹算错的风险，并可启用跨会话 prompt 缓存共享。
+// 仅对 Anthropic OAuth/SetupToken（走 mimic 的账号）有意义。
+func (a *Account) IsBillingAttributionOmitted() bool {
+	if a.Extra == nil {
+		return false
+	}
+	if v, ok := a.Extra["omit_billing_attribution"]; ok {
+		if enabled, ok := v.(bool); ok {
+			return enabled
+		}
+	}
+	return false
+}
+
 // GetOutboundHeaderOverrides 返回逐账号出站 Header 覆盖表（header 名 → 值）。
 // 从 Extra["outbound_header_overrides"] 读取（JSONB object）。空/无键返回 nil。
 // 结构性 header（hop-by-hop）与 authorization/x-api-key 在此处被剔除，作为 apply 前的兜底护栏，

@@ -306,6 +306,10 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 	if removes := a.GetOutboundHeaderRemoves(); len(removes) > 0 {
 		out.OutboundHeaderRemoves = removes
 	}
+	if a.IsBillingAttributionOmitted() {
+		omit := true
+		out.OmitBillingAttribution = &omit
+	}
 
 	// 提取账号配额限制（apikey / bedrock 类型有效）
 	if a.IsAPIKeyOrBedrock() {

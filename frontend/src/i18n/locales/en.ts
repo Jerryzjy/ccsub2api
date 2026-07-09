@@ -3647,6 +3647,10 @@ export default {
           label: 'Session ID Masking',
           hint: 'When enabled, fixes the session ID in metadata.user_id for 15 minutes, making upstream think requests come from the same session'
         },
+        omitBillingAttribution: {
+          label: 'Omit Billing Attribution Header',
+          hint: 'Do not send the x-anthropic-billing-header block, matching real Claude Code with CLAUDE_CODE_ATTRIBUTION_HEADER=false. Avoids cch/fp fingerprint mismatch risk and enables cross-session prompt cache sharing. Anthropic OAuth accounts only'
+        },
         cacheTTLOverride: {
           label: 'Cache TTL Override',
           hint: 'Force all cache creation tokens to be billed as the selected TTL tier (5m or 1h)',

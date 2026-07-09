@@ -2429,6 +2429,33 @@
           </div>
         </div>
 
+        <!-- Omit Billing Attribution -->
+        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+          <div class="flex items-center justify-between">
+            <div>
+              <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.omitBillingAttribution.label') }}</label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.quotaControl.omitBillingAttribution.hint') }}
+              </p>
+            </div>
+            <button
+              type="button"
+              @click="omitBillingAttribution = !omitBillingAttribution"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                omitBillingAttribution ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  omitBillingAttribution ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+        </div>
+
         <!-- Cache TTL Override -->
         <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
           <div class="flex items-center justify-between">
@@ -2842,6 +2869,7 @@ const tlsFingerprintEnabled = ref(false)
 const tlsFingerprintProfileId = ref<number | null>(null)
 const tlsFingerprintProfiles = ref<{ id: number; name: string }[]>([])
 const sessionIdMaskingEnabled = ref(false)
+const omitBillingAttribution = ref(false)
 const cacheTTLOverrideEnabled = ref(false)
 const cacheTTLOverrideTarget = ref<string>('5m')
 const customBaseUrlEnabled = ref(false)
@@ -3733,6 +3761,7 @@ function loadQuotaControlSettings(account: Account) {
   tlsFingerprintEnabled.value = false
   tlsFingerprintProfileId.value = null
   sessionIdMaskingEnabled.value = false
+  omitBillingAttribution.value = false
   cacheTTLOverrideEnabled.value = false
   cacheTTLOverrideTarget.value = '5m'
   customBaseUrlEnabled.value = false
@@ -3809,6 +3838,9 @@ function loadQuotaControlSettings(account: Account) {
   // Load session ID masking setting
   if (account.session_id_masking_enabled === true) {
     sessionIdMaskingEnabled.value = true
+  }
+  if (account.omit_billing_attribution === true) {
+    omitBillingAttribution.value = true
   }
 
   // Load cache TTL override setting
@@ -4388,6 +4420,11 @@ const handleSubmit = async () => {
       }
 
       // Session ID masking setting
+      if (omitBillingAttribution.value) {
+        newExtra.omit_billing_attribution = true
+      } else {
+        delete newExtra.omit_billing_attribution
+      }
       if (sessionIdMaskingEnabled.value) {
         newExtra.session_id_masking_enabled = true
       } else {

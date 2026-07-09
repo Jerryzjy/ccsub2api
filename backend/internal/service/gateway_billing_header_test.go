@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/cespare/xxhash/v2"
@@ -161,5 +162,46 @@ func TestXXHash64Seeded(t *testing.T) {
 		h1 := xxHash64Seeded(data, 0)
 		h2 := xxHash64Seeded(data, cchSeed)
 		assert.NotEqual(t, h1, h2)
+	})
+}
+
+func TestStripBillingAttributionBlock(t *testing.T) {
+	t.Run("removes billing block, keeps others", func(t *testing.T) {
+		body := []byte(`{"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.191.abc; cc_entrypoint=cli;"},{"type":"text","text":"You are Claude Code"}],"messages":[]}`)
+		out := stripBillingAttributionBlock(body)
+		if strings.Contains(string(out), "x-anthropic-billing-header") {
+			t.Errorf("billing block not removed: %s", out)
+		}
+		if !strings.Contains(string(out), "You are Claude Code") {
+			t.Errorf("non-billing block wrongly removed: %s", out)
+		}
+		if gjson.GetBytes(out, "system.#").Int() != 1 {
+			t.Errorf("expected 1 remaining system block, got %d", gjson.GetBytes(out, "system.#").Int())
+		}
+	})
+
+	t.Run("no billing block is no-op", func(t *testing.T) {
+		body := []byte(`{"system":[{"type":"text","text":"You are Claude Code"}],"messages":[]}`)
+		out := stripBillingAttributionBlock(body)
+		if string(out) != string(body) {
+			t.Errorf("body without billing block was modified")
+		}
+	})
+
+	t.Run("string system is no-op", func(t *testing.T) {
+		body := []byte(`{"system":"just a string","messages":[]}`)
+		out := stripBillingAttributionBlock(body)
+		if string(out) != string(body) {
+			t.Errorf("string system was modified")
+		}
+	})
+
+	t.Run("stripped body makes CCH signing a no-op", func(t *testing.T) {
+		body := []byte(`{"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.191.abc; cch=00000;"},{"type":"text","text":"You are Claude Code"}],"messages":[]}`)
+		stripped := stripBillingAttributionBlock(body)
+		signed := signBillingHeaderCCH(stripped)
+		if string(signed) != string(stripped) {
+			t.Errorf("CCH signing should be no-op after strip")
+		}
 	})
 }

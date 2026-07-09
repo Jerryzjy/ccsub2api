@@ -7063,6 +7063,19 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 		body = syncBillingHeaderVersion(body, fingerprint.UserAgent)
 	}
 
+	// 请求体去指纹：mimic 路径下把 <env>/<system-reminder> 块内的机器字段归一为与伪造头
+	// OS 一致的 canonical 值，消除“头体矛盾”与“同账号多机泄露”两类封号信号。
+	// 必须在 CCH 签名（下方）之前，确保签名覆盖归一后的 body。
+	if mimicClaudeCode {
+		body = sanitizeSystemMachineEnv(body, claude.DefaultHeaders["X-Stainless-OS"])
+	}
+
+	// 账号级开关：省略 billing attribution 块（对应 CLAUDE_CODE_ATTRIBUTION_HEADER=false）。
+	// 移除后下方 signBillingHeaderCCH 无占位符可签、自动 no-op。
+	if mimicClaudeCode && account.IsBillingAttributionOmitted() {
+		body = stripBillingAttributionBlock(body)
+	}
+
 	// === 计算最终 anthropic-beta header（先于 body sanitize 与 CCH 签名）===
 	//
 	// 顺序约束：
@@ -10609,6 +10622,16 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	// 同步 billing header cc_version 与实际发送的 User-Agent 版本
 	if ctFingerprint != nil && ctEnableFP {
 		body = syncBillingHeaderVersion(body, ctFingerprint.UserAgent)
+	}
+
+	// 请求体去指纹：与 buildUpstreamRequest 对称，mimic 路径归一 <env> 机器字段。
+	if mimicClaudeCode {
+		body = sanitizeSystemMachineEnv(body, claude.DefaultHeaders["X-Stainless-OS"])
+	}
+
+	// 账号级开关：省略 billing attribution 块（对应 CLAUDE_CODE_ATTRIBUTION_HEADER=false）。
+	if mimicClaudeCode && account.IsBillingAttributionOmitted() {
+		body = stripBillingAttributionBlock(body)
 	}
 
 	// === 计算最终 anthropic-beta header（先于 body sanitize 与 CCH 签名）===
