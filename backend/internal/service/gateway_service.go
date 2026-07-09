@@ -7063,11 +7063,22 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 		body = syncBillingHeaderVersion(body, fingerprint.UserAgent)
 	}
 
+	// 环境画像多样化：开启后按账号冻结 device_id 派生一套 OS 画像，覆盖全局统一的 Linux。
+	// envOS 同时驱动 <env> 体归一（此处）与 X-Stainless-OS/Arch 头覆盖（mimic 之后），保证头体一致。
+	envProfileActive := mimicClaudeCode && s.cfg != nil &&
+		s.cfg.Gateway.Scheduling.EnvProfileDiversityEnabled && fingerprint != nil && fingerprint.ClientID != ""
+	envOS := claude.DefaultHeaders["X-Stainless-OS"]
+	var accountEnvProfile envOSProfile
+	if envProfileActive {
+		accountEnvProfile = envOSProfileForSeed(fingerprint.ClientID)
+		envOS = accountEnvProfile.XStainlessOS
+	}
+
 	// 请求体去指纹：mimic 路径下把 <env>/<system-reminder> 块内的机器字段归一为与伪造头
 	// OS 一致的 canonical 值，消除“头体矛盾”与“同账号多机泄露”两类封号信号。
 	// 必须在 CCH 签名（下方）之前，确保签名覆盖归一后的 body。
 	if mimicClaudeCode {
-		body = sanitizeSystemMachineEnv(body, claude.DefaultHeaders["X-Stainless-OS"])
+		body = sanitizeSystemMachineEnv(body, envOS)
 	}
 
 	// 账号级开关：省略 billing attribution 块（对应 CLAUDE_CODE_ATTRIBUTION_HEADER=false）。
@@ -7168,6 +7179,12 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	// （user-agent/x-stainless-*/x-app/Accept/x-stainless-helper-method/x-client-request-id）
 	if tokenType == "oauth" && mimicClaudeCode {
 		applyClaudeCodeMimicHeaders(req, reqStream)
+	}
+
+	// 环境画像多样化：mimic 强制全局 DefaultHeaders 之后，用账号冻结画像覆盖 X-Stainless-OS/Arch，
+	// 与上方 <env> 体归一使用的是同一套 accountEnvProfile，确保头体一致。
+	if envProfileActive {
+		applyAccountEnvProfileHeaders(req.Header, accountEnvProfile)
 	}
 
 	// 写入最终 anthropic-beta header
@@ -10624,9 +10641,19 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 		body = syncBillingHeaderVersion(body, ctFingerprint.UserAgent)
 	}
 
+	// 环境画像多样化：与 buildUpstreamRequest 对称。
+	ctEnvProfileActive := mimicClaudeCode && s.cfg != nil &&
+		s.cfg.Gateway.Scheduling.EnvProfileDiversityEnabled && ctFingerprint != nil && ctFingerprint.ClientID != ""
+	ctEnvOS := claude.DefaultHeaders["X-Stainless-OS"]
+	var ctAccountEnvProfile envOSProfile
+	if ctEnvProfileActive {
+		ctAccountEnvProfile = envOSProfileForSeed(ctFingerprint.ClientID)
+		ctEnvOS = ctAccountEnvProfile.XStainlessOS
+	}
+
 	// 请求体去指纹：与 buildUpstreamRequest 对称，mimic 路径归一 <env> 机器字段。
 	if mimicClaudeCode {
-		body = sanitizeSystemMachineEnv(body, claude.DefaultHeaders["X-Stainless-OS"])
+		body = sanitizeSystemMachineEnv(body, ctEnvOS)
 	}
 
 	// 账号级开关：省略 billing attribution 块（对应 CLAUDE_CODE_ATTRIBUTION_HEADER=false）。
@@ -10693,6 +10720,11 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	// OAuth + mimic Claude Code：强制注入 CLI 指纹 header
 	if tokenType == "oauth" && mimicClaudeCode {
 		applyClaudeCodeMimicHeaders(req, false)
+	}
+
+	// 环境画像多样化：mimic 之后覆盖 X-Stainless-OS/Arch，与体归一一致。
+	if ctEnvProfileActive {
+		applyAccountEnvProfileHeaders(req.Header, ctAccountEnvProfile)
 	}
 
 	// 写入最终 anthropic-beta header（Del 一次避免白名单透传值残留）

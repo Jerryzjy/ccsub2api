@@ -1089,6 +1089,10 @@ type GatewaySchedulingConfig struct {
 	TieBreakMode string `mapstructure:"tie_break_mode"`
 	// 限流/封号冷却联动同 UUID 的所有记录
 	CooldownByUUID bool `mapstructure:"cooldown_by_uuid"`
+	// 环境画像多样化：为每账号按其冻结 device_id 加权分配一套自洽的 OS 画像
+	// （X-Stainless-OS/Arch + <env> 机器字段），打散“全车队清一色 Linux”的聚类特征。
+	// 默认关闭；开启后已有账号会按其 device_id 一次性确定 OS 并从此冻结。
+	EnvProfileDiversityEnabled bool `mapstructure:"env_profile_diversity_enabled"`
 	// 窗口额度预检：接近上限时提前停调度
 	WindowPrecheckEnabled   bool    `mapstructure:"window_precheck_enabled"`
 	WindowPrecheckThreshold float64 `mapstructure:"window_precheck_threshold"`
