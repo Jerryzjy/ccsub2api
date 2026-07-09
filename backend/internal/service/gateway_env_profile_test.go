@@ -110,15 +110,38 @@ func TestCanonicalWorkingDirConsistency(t *testing.T) {
 	}
 }
 
-// TestSanitizeStripsPersonalWorkingDir: 一个真用户路径如果被泄露到 <env>，
-// 必须被替换为 canonical 路径（不能让它带着用户名打到上游）。
-func TestSanitizeStripsPersonalWorkingDir(t *testing.T) {
-	original := "<env>\nWorking directory: /Users/zhongjiayu/Projects/secret-thing\nPlatform: darwin\nOS Version: Darwin 24.4.0\nShell: zsh\n</env>"
-	got := sanitizeMachineEnvText(original, "/Users/dev/project", "darwin", "Darwin 24.4.0", "zsh")
-	if strings.Contains(got, "/Users/zhongjiayu/") {
-		t.Errorf("personal working dir leaked: %s", got)
+// TestSanitizeStripsLeakedTimezone: 下游客户端经常在 <env> 里塞 "Timezone: Asia/Shanghai"
+// 之类的行（真 CLI 不发这个字段）。这种行必须剥离，且不能伪造任何 timezone 替代。
+func TestSanitizeStripsLeakedTimezone(t *testing.T) {
+	in := "<env>\nWorking directory: /Users/dev/project\nPlatform: darwin\nOS Version: Darwin 24.4.0\nShell: zsh\nTimezone: Asia/Shanghai\n</env>"
+	got := sanitizeMachineEnvText(in, "/Users/dev/project", "darwin", "Darwin 24.4.0", "zsh")
+	if strings.Contains(got, "Timezone:") || strings.Contains(got, "Asia/Shanghai") {
+		t.Errorf("timezone line leaked to upstream: %q", got)
 	}
-	if !strings.Contains(got, "Working directory: /Users/dev/project") {
-		t.Errorf("working dir not canonicalized: %s", got)
+	// CLI 真字段仍需被保留。
+	for _, want := range []string{"Platform: darwin", "OS Version: Darwin 24.4.0", "Shell: zsh"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("cli field dropped during strip: %q (want %s)", got, want)
+		}
+	}
+}
+
+// TestSanitizeStripsTimezoneInSystemReminder: <system-reminder> 块里的 Timezone 也要剥，
+// 不光 <env>。
+func TestSanitizeStripsTimezoneInSystemReminder(t *testing.T) {
+	in := "<system-reminder>Platform: darwin\nTimezone: America/New_York\nShell: zsh</system-reminder>"
+	got := sanitizeMachineEnvText(in, "/Users/dev/project", "darwin", "Darwin 24.4.0", "zsh")
+	if strings.Contains(got, "Timezone:") || strings.Contains(got, "America/New_York") {
+		t.Errorf("timezone leaked from system-reminder: %q", got)
+	}
+}
+
+// TestSanitizeTimezoneStripIsNotAdded: 确保我们真的没伪造 timezone 上去。
+// 没有 Timezone 行的情况下，输出也不能凭空多一行出来。
+func TestSanitizeTimezoneStripIsNotAdded(t *testing.T) {
+	in := "<env>\nPlatform: linux\nOS Version: Linux 6.8.0-45-generic\nShell: bash\n</env>"
+	got := sanitizeMachineEnvText(in, "/home/dev/project", "linux", "Linux 6.8.0-45-generic", "bash")
+	if strings.Contains(got, "Timezone:") {
+		t.Errorf("sanitizer must NOT inject a timezone line: %q", got)
 	}
 }

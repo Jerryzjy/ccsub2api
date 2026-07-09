@@ -19,13 +19,24 @@ import (
 //
 // 仅改写 <env> 与 <system-reminder> 定界块内的字段，绝不触碰块外的用户自由文本。
 //
-// 真 CLI <env> 不含 timezone 行（经 anthropic-sdk-typescript 检测亦无 X-Stainless-Timezone
-// 字段），所以这里也不引入 timezone 维度——伪造一个不存在的字段反而会变成新的可检测指纹。
+// 关于 Timezone 行：真 CLI <env> 不含 timezone 行（anthropic-sdk-typescript 也无
+// X-Stainless-Timezone 字段）。所以策略是 **剥离** 而非伪造——下游（Cline/Cursor/其它
+// 自家客户端/一些中转）经常在 system prompt 里塞 "Timezone: Asia/Shanghai"，
+// 一旦原样透传到 Anthropic，会出现两种封号信号：
+//  1. 字段不符合真 CLI 形状（Anthropic 检测到"此账号的 <env> 含奇怪行"）。
+//  2. 多账号分配异常：同一账号看到大量同类 Timezone（亚洲一堆），暗示账号被多人共享。
+// 仅把这一行删掉，不伪造任何 timezone 值上去——加一个真实不存在的字段是新增检测点，不是封堵。
 var (
 	envWorkingDirRe = regexp.MustCompile(`Working directory:\s*[^\n<]+`)
 	envPlatformRe   = regexp.MustCompile(`Platform:\s*\S+`)
 	envOSVersionRe  = regexp.MustCompile(`OS Version:\s*[^\n<]+`)
 	envShellRe      = regexp.MustCompile(`Shell:\s*\S+`)
+	// envTimezoneRe: 真 CLI <env> 不带 Timezone 行（anthropic-sdk-typescript 也无
+	// X-Stainless-Timezone 字段）。任何带 "Timezone: Asia/Shanghai" 之类的行都是下游
+	// 客户端（或其中转）的元数据泄露——一个真账号被多个真人共享时，每个真人会带自己
+	// 的 timezone，分布异常（全是 Asia/Shanghai 或 UTC 这两极），是上游风控的高置信信号。
+	// 这里只剥离不伪造：加一个不存在 CLI 字段上去反而会变成新的可检测指纹。
+	envTimezoneRe = regexp.MustCompile(`(?m)^\s*Timezone:\s*[^\n]+$\n?`)
 
 	envBlockRe          = regexp.MustCompile(`(?s)<env>.*?</env>`)
 	systemReminderBlkRe = regexp.MustCompile(`(?s)<system-reminder>.*?</system-reminder>`)
@@ -50,7 +61,10 @@ func canonicalEnvValues(stainlessOS string) (workingDir, platform, osVersion, sh
 }
 
 // rewriteMachineEnvInBlock 只在单个 <env>/<system-reminder> 块内改写机器字段。
+// 顺序：先剥掉非 CLI 字段（Timezone），再归一 CLI 字段。剥离必须在最前，否则残留
+// 的 "Timezone: Asia/Shanghai" 会跟着块一起打到上游。
 func rewriteMachineEnvInBlock(block, workingDir, platform, osVersion, shell string) string {
+	block = envTimezoneRe.ReplaceAllString(block, "")
 	block = envWorkingDirRe.ReplaceAllString(block, "Working directory: "+workingDir)
 	block = envPlatformRe.ReplaceAllString(block, "Platform: "+platform)
 	block = envOSVersionRe.ReplaceAllString(block, "OS Version: "+osVersion)
