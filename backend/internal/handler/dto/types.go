@@ -208,6 +208,17 @@ type Account struct {
 	RPMStickyBuffer  *int    `json:"rpm_sticky_buffer,omitempty"`
 	UserMsgQueueMode *string `json:"user_msg_queue_mode,omitempty"`
 
+	// TPM 限制（每分钟 token 数，输入+输出+缓存；配置了 base_tpm 的任意账号有效）
+	// 从 extra 字段提取，方便前端显示和编辑
+	BaseTPM         *int    `json:"base_tpm,omitempty"`
+	TPMStrategy     *string `json:"tpm_strategy,omitempty"`
+	TPMStickyBuffer *int    `json:"tpm_sticky_buffer,omitempty"`
+
+	// 逐账号出站 Header 覆盖/删除（任意账号类型有效）
+	// 从 extra 字段提取，方便前端显示和编辑
+	OutboundHeaderOverrides map[string]string `json:"outbound_header_overrides,omitempty"`
+	OutboundHeaderRemoves   []string          `json:"outbound_header_removes,omitempty"`
+
 	// TLS指纹伪装（仅 Anthropic OAuth/SetupToken 账号有效）
 	// 从 extra 字段提取，方便前端显示和编辑
 	EnableTLSFingerprint    *bool  `json:"enable_tls_fingerprint,omitempty"`

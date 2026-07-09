@@ -1053,6 +1053,110 @@
         </div>
       </div>
 
+      <!-- TPM Limit (适用于任意账号类型) -->
+      <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div class="mb-3 flex items-center justify-between">
+          <label
+            id="bulk-edit-tpm-limit-label"
+            class="input-label mb-0"
+            for="bulk-edit-tpm-limit-enabled"
+          >
+            {{ t('admin.accounts.quotaControl.tpmLimit.label') }}
+          </label>
+          <input
+            v-model="enableTpmLimit"
+            id="bulk-edit-tpm-limit-enabled"
+            type="checkbox"
+            aria-controls="bulk-edit-tpm-limit-body"
+            class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+          />
+        </div>
+
+        <div
+          id="bulk-edit-tpm-limit-body"
+          :class="!enableTpmLimit && 'pointer-events-none opacity-50'"
+          role="group"
+          aria-labelledby="bulk-edit-tpm-limit-label"
+        >
+          <div class="mb-3 flex items-center justify-between">
+            <span class="text-sm text-gray-700 dark:text-gray-300">{{ t('admin.accounts.quotaControl.tpmLimit.hint') }}</span>
+            <button
+              type="button"
+              @click="tpmLimitEnabled = !tpmLimitEnabled"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                tpmLimitEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  tpmLimitEnabled ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+
+          <div v-if="tpmLimitEnabled" class="space-y-3">
+            <div>
+              <label class="input-label text-xs">{{ t('admin.accounts.quotaControl.tpmLimit.baseTpm') }}</label>
+              <input
+                v-model.number="bulkBaseTpm"
+                type="number"
+                min="1"
+                step="1000"
+                class="input"
+                :placeholder="t('admin.accounts.quotaControl.tpmLimit.baseTpmPlaceholder')"
+              />
+              <p class="input-hint">{{ t('admin.accounts.quotaControl.tpmLimit.baseTpmHint') }}</p>
+            </div>
+
+            <div>
+              <label class="input-label text-xs">{{ t('admin.accounts.quotaControl.rpmLimit.strategy') }}</label>
+              <div class="flex gap-2">
+                <button
+                  type="button"
+                  @click="bulkTpmStrategy = 'tiered'"
+                  :class="[
+                    'flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-all',
+                    bulkTpmStrategy === 'tiered'
+                      ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
+                  ]"
+                >
+                  {{ t('admin.accounts.quotaControl.rpmLimit.strategyTiered') }}
+                </button>
+                <button
+                  type="button"
+                  @click="bulkTpmStrategy = 'sticky_exempt'"
+                  :class="[
+                    'flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-all',
+                    bulkTpmStrategy === 'sticky_exempt'
+                      ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
+                  ]"
+                >
+                  {{ t('admin.accounts.quotaControl.rpmLimit.strategyStickyExempt') }}
+                </button>
+              </div>
+            </div>
+
+            <div v-if="bulkTpmStrategy === 'tiered'">
+              <label class="input-label text-xs">{{ t('admin.accounts.quotaControl.tpmLimit.stickyBuffer') }}</label>
+              <input
+                v-model.number="bulkTpmStickyBuffer"
+                type="number"
+                min="1"
+                step="1000"
+                class="input"
+                :placeholder="t('admin.accounts.quotaControl.tpmLimit.stickyBufferPlaceholder')"
+              />
+              <p class="input-hint">{{ t('admin.accounts.quotaControl.tpmLimit.stickyBufferHint') }}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Groups -->
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <div class="mb-3 flex items-center justify-between">
@@ -1298,6 +1402,11 @@ const rpmLimitEnabled = ref(false)
 const bulkBaseRpm = ref<number | null>(null)
 const bulkRpmStrategy = ref<'tiered' | 'sticky_exempt'>('tiered')
 const bulkRpmStickyBuffer = ref<number | null>(null)
+const enableTpmLimit = ref(false)
+const tpmLimitEnabled = ref(false)
+const bulkBaseTpm = ref<number | null>(null)
+const bulkTpmStrategy = ref<'tiered' | 'sticky_exempt'>('tiered')
+const bulkTpmStickyBuffer = ref<number | null>(null)
 const userMsgQueueMode = ref<string | null>(null)
 const umqModeOptions = computed(() => [
   { value: '', label: t('admin.accounts.quotaControl.rpmLimit.umqModeOff') },
@@ -1577,6 +1686,24 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
     updates.extra = extra
   }
 
+  // TPM limit settings (写入 extra 字段)
+  if (enableTpmLimit.value) {
+    const extra = ensureExtra()
+    if (tpmLimitEnabled.value && bulkBaseTpm.value != null && bulkBaseTpm.value > 0) {
+      extra.base_tpm = bulkBaseTpm.value
+      extra.tpm_strategy = bulkTpmStrategy.value
+      if (bulkTpmStickyBuffer.value != null && bulkTpmStickyBuffer.value > 0) {
+        extra.tpm_sticky_buffer = bulkTpmStickyBuffer.value
+      }
+    } else {
+      // 关闭 TPM 限制 - 显式发送空值重置（JSONB merge 语义不会删除已有 key）
+      extra.base_tpm = 0
+      extra.tpm_strategy = ''
+      extra.tpm_sticky_buffer = 0
+    }
+    updates.extra = extra
+  }
+
   // UMQ mode（独立于 RPM 保存）
   if (userMsgQueueMode.value !== null) {
     const umqExtra = ensureExtra()
@@ -1760,6 +1887,7 @@ watch(
       enableOpenAICompactMode.value = false
       enableOpenAICompactModelMapping.value = false
       enableRpmLimit.value = false
+      enableTpmLimit.value = false
 
       // Reset all values
       baseUrl.value = ''
@@ -1787,6 +1915,10 @@ watch(
       bulkBaseRpm.value = null
       bulkRpmStrategy.value = 'tiered'
       bulkRpmStickyBuffer.value = null
+      tpmLimitEnabled.value = false
+      bulkBaseTpm.value = null
+      bulkTpmStrategy.value = 'tiered'
+      bulkTpmStickyBuffer.value = null
       userMsgQueueMode.value = null
 
       // Reset mixed channel warning state

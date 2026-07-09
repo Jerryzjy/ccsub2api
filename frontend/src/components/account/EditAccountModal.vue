@@ -2179,6 +2179,194 @@
           </div>
         </div>
 
+        <!-- TPM Limit -->
+        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+          <div class="mb-3 flex items-center justify-between">
+            <div>
+              <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.tpmLimit.label') }}</label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.quotaControl.tpmLimit.hint') }}
+              </p>
+            </div>
+            <button
+              type="button"
+              @click="tpmLimitEnabled = !tpmLimitEnabled"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                tpmLimitEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  tpmLimitEnabled ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+
+          <div v-if="tpmLimitEnabled" class="space-y-4">
+            <div>
+              <label class="input-label">{{ t('admin.accounts.quotaControl.tpmLimit.baseTpm') }}</label>
+              <input
+                v-model.number="baseTpm"
+                type="number"
+                min="1"
+                step="1000"
+                class="input"
+                :placeholder="t('admin.accounts.quotaControl.tpmLimit.baseTpmPlaceholder')"
+              />
+              <p class="input-hint">{{ t('admin.accounts.quotaControl.tpmLimit.baseTpmHint') }}</p>
+            </div>
+
+            <div>
+              <label class="input-label">{{ t('admin.accounts.quotaControl.rpmLimit.strategy') }}</label>
+              <div class="flex gap-2">
+                <button
+                  type="button"
+                  @click="tpmStrategy = 'tiered'"
+                  :class="[
+                    'flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-all',
+                    tpmStrategy === 'tiered'
+                      ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
+                  ]"
+                >
+                  <div class="text-center">
+                    <div>{{ t('admin.accounts.quotaControl.rpmLimit.strategyTiered') }}</div>
+                    <div class="mt-0.5 text-[10px] opacity-70">{{ t('admin.accounts.quotaControl.rpmLimit.strategyTieredHint') }}</div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  @click="tpmStrategy = 'sticky_exempt'"
+                  :class="[
+                    'flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-all',
+                    tpmStrategy === 'sticky_exempt'
+                      ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
+                  ]"
+                >
+                  <div class="text-center">
+                    <div>{{ t('admin.accounts.quotaControl.rpmLimit.strategyStickyExempt') }}</div>
+                    <div class="mt-0.5 text-[10px] opacity-70">{{ t('admin.accounts.quotaControl.rpmLimit.strategyStickyExemptHint') }}</div>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            <div v-if="tpmStrategy === 'tiered'">
+              <label class="input-label">{{ t('admin.accounts.quotaControl.tpmLimit.stickyBuffer') }}</label>
+              <input
+                v-model.number="tpmStickyBuffer"
+                type="number"
+                min="1"
+                step="1000"
+                class="input"
+                :placeholder="t('admin.accounts.quotaControl.tpmLimit.stickyBufferPlaceholder')"
+              />
+              <p class="input-hint">{{ t('admin.accounts.quotaControl.tpmLimit.stickyBufferHint') }}</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Outbound Header Override -->
+        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+          <div class="mb-3 flex items-center justify-between">
+            <div>
+              <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.outboundHeaders.label') }}</label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.quotaControl.outboundHeaders.hint') }}
+              </p>
+            </div>
+            <button
+              type="button"
+              @click="outboundHeadersEnabled = !outboundHeadersEnabled"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                outboundHeadersEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  outboundHeadersEnabled ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+
+          <div v-if="outboundHeadersEnabled" class="space-y-4">
+            <p class="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
+              {{ t('admin.accounts.quotaControl.outboundHeaders.warning') }}
+            </p>
+
+            <!-- Overrides (key/value rows) -->
+            <div>
+              <label class="input-label">{{ t('admin.accounts.quotaControl.outboundHeaders.overridesLabel') }}</label>
+              <div class="space-y-2">
+                <div v-for="(row, idx) in headerOverrideRows" :key="idx" class="flex gap-2">
+                  <input
+                    v-model="row.name"
+                    type="text"
+                    class="input flex-1"
+                    :placeholder="t('admin.accounts.quotaControl.outboundHeaders.namePlaceholder')"
+                  />
+                  <input
+                    v-model="row.value"
+                    type="text"
+                    class="input flex-1"
+                    :placeholder="t('admin.accounts.quotaControl.outboundHeaders.valuePlaceholder')"
+                  />
+                  <button
+                    type="button"
+                    class="btn btn-secondary px-3"
+                    @click="headerOverrideRows.splice(idx, 1)"
+                  >
+                    &times;
+                  </button>
+                </div>
+              </div>
+              <button
+                type="button"
+                class="mt-2 text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400"
+                @click="headerOverrideRows.push({ name: '', value: '' })"
+              >
+                + {{ t('admin.accounts.quotaControl.outboundHeaders.addOverride') }}
+              </button>
+            </div>
+
+            <!-- Removes (header names) -->
+            <div>
+              <label class="input-label">{{ t('admin.accounts.quotaControl.outboundHeaders.removesLabel') }}</label>
+              <div class="space-y-2">
+                <div v-for="(row, idx) in headerRemoveRows" :key="idx" class="flex gap-2">
+                  <input
+                    v-model="row.name"
+                    type="text"
+                    class="input flex-1"
+                    :placeholder="t('admin.accounts.quotaControl.outboundHeaders.namePlaceholder')"
+                  />
+                  <button
+                    type="button"
+                    class="btn btn-secondary px-3"
+                    @click="headerRemoveRows.splice(idx, 1)"
+                  >
+                    &times;
+                  </button>
+                </div>
+              </div>
+              <button
+                type="button"
+                class="mt-2 text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400"
+                @click="headerRemoveRows.push({ name: '' })"
+              >
+                + {{ t('admin.accounts.quotaControl.outboundHeaders.addRemove') }}
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- TLS Fingerprint -->
         <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
           <div class="flex items-center justify-between">
@@ -2637,6 +2825,13 @@ const rpmLimitEnabled = ref(false)
 const baseRpm = ref<number | null>(null)
 const rpmStrategy = ref<'tiered' | 'sticky_exempt'>('tiered')
 const rpmStickyBuffer = ref<number | null>(null)
+const tpmLimitEnabled = ref(false)
+const baseTpm = ref<number | null>(null)
+const tpmStrategy = ref<'tiered' | 'sticky_exempt'>('tiered')
+const tpmStickyBuffer = ref<number | null>(null)
+const outboundHeadersEnabled = ref(false)
+const headerOverrideRows = ref<{ name: string; value: string }[]>([])
+const headerRemoveRows = ref<{ name: string }[]>([])
 const userMsgQueueMode = ref('')
 const umqModeOptions = computed(() => [
   { value: '', label: t('admin.accounts.quotaControl.rpmLimit.umqModeOff') },
@@ -3527,6 +3722,13 @@ function loadQuotaControlSettings(account: Account) {
   baseRpm.value = null
   rpmStrategy.value = 'tiered'
   rpmStickyBuffer.value = null
+  tpmLimitEnabled.value = false
+  baseTpm.value = null
+  tpmStrategy.value = 'tiered'
+  tpmStickyBuffer.value = null
+  outboundHeadersEnabled.value = false
+  headerOverrideRows.value = []
+  headerRemoveRows.value = []
   userMsgQueueMode.value = ''
   tlsFingerprintEnabled.value = false
   tlsFingerprintProfileId.value = null
@@ -3574,6 +3776,25 @@ function loadQuotaControlSettings(account: Account) {
     baseRpm.value = account.base_rpm
     rpmStrategy.value = (account.rpm_strategy as 'tiered' | 'sticky_exempt') || 'tiered'
     rpmStickyBuffer.value = account.rpm_sticky_buffer ?? null
+  }
+
+  // TPM limit
+  if (account.base_tpm != null && account.base_tpm > 0) {
+    tpmLimitEnabled.value = true
+    baseTpm.value = account.base_tpm
+    tpmStrategy.value = (account.tpm_strategy as 'tiered' | 'sticky_exempt') || 'tiered'
+    tpmStickyBuffer.value = account.tpm_sticky_buffer ?? null
+  }
+
+  // Outbound header override
+  const overrides = account.outbound_header_overrides
+  const removes = account.outbound_header_removes
+  if ((overrides && Object.keys(overrides).length > 0) || (removes && removes.length > 0)) {
+    outboundHeadersEnabled.value = true
+    headerOverrideRows.value = overrides
+      ? Object.entries(overrides).map(([name, value]) => ({ name, value }))
+      : []
+    headerRemoveRows.value = removes ? removes.map((name) => ({ name })) : []
   }
 
   // UMQ mode（独立于 RPM 加载，防止编辑无 RPM 账号时丢失已有配置）
@@ -4105,6 +4326,44 @@ const handleSubmit = async () => {
         delete newExtra.base_rpm
         delete newExtra.rpm_strategy
         delete newExtra.rpm_sticky_buffer
+      }
+
+      // TPM limit settings
+      if (tpmLimitEnabled.value) {
+        const DEFAULT_BASE_TPM = 200000
+        newExtra.base_tpm = (baseTpm.value != null && baseTpm.value > 0)
+          ? baseTpm.value
+          : DEFAULT_BASE_TPM
+        newExtra.tpm_strategy = tpmStrategy.value
+        if (tpmStickyBuffer.value != null && tpmStickyBuffer.value > 0) {
+          newExtra.tpm_sticky_buffer = tpmStickyBuffer.value
+        } else {
+          delete newExtra.tpm_sticky_buffer
+        }
+      } else {
+        delete newExtra.base_tpm
+        delete newExtra.tpm_strategy
+        delete newExtra.tpm_sticky_buffer
+      }
+
+      // Outbound header override settings
+      // 更新路径为 JSONB key 级 merge，关闭时需显式发送空值覆盖，不能只 delete
+      if (outboundHeadersEnabled.value) {
+        const overrides: Record<string, string> = {}
+        for (const row of headerOverrideRows.value) {
+          const name = row.name.trim()
+          if (name) overrides[name] = row.value
+        }
+        const removes: string[] = []
+        for (const row of headerRemoveRows.value) {
+          const name = row.name.trim()
+          if (name) removes.push(name)
+        }
+        newExtra.outbound_header_overrides = overrides
+        newExtra.outbound_header_removes = removes
+      } else {
+        newExtra.outbound_header_overrides = {}
+        newExtra.outbound_header_removes = []
       }
 
       // UMQ mode（独立于 RPM 保存）

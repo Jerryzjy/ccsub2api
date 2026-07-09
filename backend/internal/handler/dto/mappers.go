@@ -292,6 +292,21 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		}
 	}
 
+	// TPM 限制与逐账号出站 Header 覆盖：适用于任意账号类型（不限 Anthropic OAuth）
+	if tpm := a.GetBaseTPM(); tpm > 0 {
+		out.BaseTPM = &tpm
+		strategy := a.GetTPMStrategy()
+		out.TPMStrategy = &strategy
+		buffer := a.GetTPMStickyBuffer()
+		out.TPMStickyBuffer = &buffer
+	}
+	if overrides := a.GetOutboundHeaderOverrides(); len(overrides) > 0 {
+		out.OutboundHeaderOverrides = overrides
+	}
+	if removes := a.GetOutboundHeaderRemoves(); len(removes) > 0 {
+		out.OutboundHeaderRemoves = removes
+	}
+
 	// 提取账号配额限制（apikey / bedrock 类型有效）
 	if a.IsAPIKeyOrBedrock() {
 		if limit := a.GetQuotaLimit(); limit > 0 {

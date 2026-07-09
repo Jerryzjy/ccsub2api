@@ -2911,32 +2911,61 @@ func rpmFromPrefetchContext(ctx context.Context, accountID int64) (int, bool) {
 	return 0, false
 }
 
-// withRPMPrefetch 批量预取所有候选账号的 RPM 计数
+// tpmPrefetchContextKey is the context key for prefetched TPM (token) counts.
+type tpmPrefetchContextKeyType struct{}
+
+var tpmPrefetchContextKey = tpmPrefetchContextKeyType{}
+
+func tpmFromPrefetchContext(ctx context.Context, accountID int64) (int, bool) {
+	if v, ok := ctx.Value(tpmPrefetchContextKey).(map[int64]int); ok {
+		count, found := v[accountID]
+		return count, found
+	}
+	return 0, false
+}
+
+// withRPMPrefetch 批量预取所有候选账号的 RPM + TPM 计数
+// 两类计数共用同一次调度批量预取，避免逐账号回源。
 func (s *GatewayService) withRPMPrefetch(ctx context.Context, accounts []Account) context.Context {
 	if s.rpmCache == nil {
 		return ctx
 	}
 
-	var ids []int64
+	var rpmIDs []int64
+	var tpmIDs []int64
 	for i := range accounts {
 		if accounts[i].IsAnthropicOAuthOrSetupToken() && accounts[i].GetBaseRPM() > 0 {
-			ids = append(ids, accounts[i].ID)
+			rpmIDs = append(rpmIDs, accounts[i].ID)
+		}
+		// TPM 适用于任意配置了 base_tpm 的账号（含 apikey 类型）
+		if accounts[i].GetBaseTPM() > 0 {
+			tpmIDs = append(tpmIDs, accounts[i].ID)
 		}
 	}
-	if len(ids) == 0 {
-		return ctx
-	}
 
-	counts, err := s.rpmCache.GetRPMBatch(ctx, ids)
-	if err != nil {
-		return ctx // 失败开放
+	if len(rpmIDs) > 0 {
+		if counts, err := s.rpmCache.GetRPMBatch(ctx, rpmIDs); err == nil {
+			ctx = context.WithValue(ctx, rpmPrefetchContextKey, counts)
+		}
+		// 失败开放：预取失败时保持原 ctx，后续逐账号回源
 	}
-	return context.WithValue(ctx, rpmPrefetchContextKey, counts)
+	if len(tpmIDs) > 0 {
+		if counts, err := s.rpmCache.GetTPMBatch(ctx, tpmIDs); err == nil {
+			ctx = context.WithValue(ctx, tpmPrefetchContextKey, counts)
+		}
+	}
+	return ctx
 }
 
-// isAccountSchedulableForRPM 检查账号是否可根据 RPM 进行调度
-// 仅适用于 Anthropic OAuth/SetupToken 账号
+// isAccountSchedulableForRPM 检查账号是否可根据 RPM / TPM 进行调度。
+// 作为统一的每分钟速率调度门：先做 TPM 检查（适用于任意配置了 base_tpm 的账号，
+// 含 apikey 类型），再做 RPM 检查（仅 Anthropic OAuth/SetupToken）。
+// 融合在同一函数内是为了复用现有全部调度调用点，避免逐路径新增判断而遗漏分支。
 func (s *GatewayService) isAccountSchedulableForRPM(ctx context.Context, account *Account, isSticky bool) bool {
+	// TPM 门：作用域比 RPM 更宽（不限账号类型）
+	if !s.isAccountSchedulableForTPM(ctx, account, isSticky) {
+		return false
+	}
 	if !account.IsAnthropicOAuthOrSetupToken() {
 		return true
 	}
@@ -2977,6 +3006,48 @@ func (s *GatewayService) IncrementAccountRPM(ctx context.Context, accountID int6
 		return nil
 	}
 	_, err := s.rpmCache.IncrementRPM(ctx, accountID)
+	return err
+}
+
+// isAccountSchedulableForTPM 检查账号是否可根据当前分钟已消耗 token 数进行调度。
+// 适用于任意配置了 base_tpm 的账号（不限账号类型），base_tpm<=0 时直接放行。
+func (s *GatewayService) isAccountSchedulableForTPM(ctx context.Context, account *Account, isSticky bool) bool {
+	baseTPM := account.GetBaseTPM()
+	if baseTPM <= 0 {
+		return true
+	}
+	if s.rpmCache == nil {
+		return true
+	}
+
+	// 尝试从预取缓存获取
+	var currentTPM int
+	if count, ok := tpmFromPrefetchContext(ctx, account.ID); ok {
+		currentTPM = count
+	} else if count, err := s.rpmCache.GetTPM(ctx, account.ID); err == nil {
+		currentTPM = count
+	}
+	// 失败开放：GetTPM 错误时允许调度
+
+	switch account.CheckTPMSchedulability(currentTPM) {
+	case WindowCostSchedulable:
+		return true
+	case WindowCostStickyOnly:
+		return isSticky
+	case WindowCostNotSchedulable:
+		return false
+	}
+	return true
+}
+
+// AddAccountTPM 累加账号当前分钟已消耗 token 数。
+// 在请求完成、用量落账时以实际总 token 调用。
+// 已知 TOCTOU 竞态：与 RPM 一致的 soft-limit 权衡，可接受少量超额。
+func (s *GatewayService) AddAccountTPM(ctx context.Context, accountID int64, tokens int) error {
+	if s.rpmCache == nil || tokens <= 0 {
+		return nil
+	}
+	_, err := s.rpmCache.AddTPM(ctx, accountID, tokens)
 	return err
 }
 
@@ -7094,6 +7165,10 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 		setHeaderRaw(req.Header, "anthropic-beta", finalBetaHeader)
 	}
 
+	// 逐账号出站 Header 覆盖/删除：在指纹 mimic 之后应用，确保管理员配置的覆盖生效。
+	// 受保护 header（authorization/x-api-key + hop-by-hop）已在访问器与此处双重剔除。
+	applyAccountOutboundHeaderOverrides(req.Header, account)
+
 	// 同步 X-Claude-Code-Session-Id 头：取 body 中已处理的 metadata.user_id 的 session_id 覆盖
 	if sessionHeader := getHeaderRaw(req.Header, "X-Claude-Code-Session-Id"); sessionHeader != "" {
 		if uid := gjson.GetBytes(body, "metadata.user_id").String(); uid != "" {
@@ -7123,6 +7198,26 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	}
 
 	return req, body, nil
+}
+
+// applyAccountOutboundHeaderOverrides 应用逐账号出站 Header 覆盖与删除。
+// 先删（omit），再覆盖（override）——若同一 header 同时出现在两处，覆盖生效。
+// 受保护 header 已在访问器内剔除，这里的空判断只是提前返回省开销。
+func applyAccountOutboundHeaderOverrides(h http.Header, account *Account) {
+	if account == nil || h == nil {
+		return
+	}
+	removes := account.GetOutboundHeaderRemoves()
+	overrides := account.GetOutboundHeaderOverrides()
+	if len(removes) == 0 && len(overrides) == 0 {
+		return
+	}
+	for _, name := range removes {
+		deleteHeaderAllForms(h, name)
+	}
+	for name, value := range overrides {
+		setHeaderRaw(h, name, value)
+	}
 }
 
 func (s *GatewayService) buildUpstreamRequestAnthropicVertex(
@@ -9648,6 +9743,16 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	accountRateMultiplier := account.BillingRateMultiplier()
 	usageLog := s.buildRecordUsageLog(ctx, input, result, apiKey, user, account, subscription,
 		requestedModel, multiplier, imageMultiplier, accountRateMultiplier, billingType, cacheTTLOverridden, cost, opts)
+
+	// TPM 计数：以本次请求的实际总 token 累加到账号当前分钟窗口，
+	// 供后续请求的 TPM 主动预检使用。仅对配置了 base_tpm 的账号生效。
+	if account != nil && account.GetBaseTPM() > 0 {
+		if tokens := usageLog.TotalTokens(); tokens > 0 {
+			if err := s.AddAccountTPM(ctx, account.ID, tokens); err != nil {
+				slog.Warn("tpm_add_failed", "account_id", account.ID, "tokens", tokens, "error", err)
+			}
+		}
+	}
 
 	// 计算账号统计定价费用（使用最终上游模型匹配自定义规则）
 	if apiKey.GroupID != nil {

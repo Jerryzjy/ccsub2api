@@ -880,6 +880,15 @@ export interface Account {
   rpm_sticky_buffer?: number | null
   user_msg_queue_mode?: string | null  // "serialize" | "throttle" | null
 
+  // TPM 限制（每分钟 token 数，输入+输出+缓存；配置了 base_tpm 的任意账号有效）
+  base_tpm?: number | null
+  tpm_strategy?: string | null
+  tpm_sticky_buffer?: number | null
+
+  // 逐账号出站 Header 覆盖/删除（任意账号类型有效）
+  outbound_header_overrides?: Record<string, string> | null
+  outbound_header_removes?: string[] | null
+
   // TLS指纹伪装（仅 Anthropic OAuth/SetupToken 账号有效）
   enable_tls_fingerprint?: boolean | null
   tls_fingerprint_profile_id?: number | null
@@ -918,6 +927,7 @@ export interface Account {
   current_window_cost?: number | null // 当前窗口费用
   active_sessions?: number | null // 当前活跃会话数
   current_rpm?: number | null // 当前分钟 RPM 计数
+  current_tpm?: number | null // 当前分钟 TPM（token）计数
 }
 
 // Account Usage types

@@ -11,6 +11,7 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -174,6 +175,7 @@ type AccountWithConcurrency struct {
 	CurrentWindowCost *float64 `json:"current_window_cost,omitempty"` // 当前窗口费用
 	ActiveSessions    *int     `json:"active_sessions,omitempty"`     // 当前活跃会话数
 	CurrentRPM        *int     `json:"current_rpm,omitempty"`         // 当前分钟 RPM 计数
+	CurrentTPM        *int     `json:"current_tpm,omitempty"`         // 当前分钟 TPM（token）计数
 }
 
 const accountListGroupUngroupedQueryValue = "ungrouped"
@@ -216,6 +218,13 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 			if rpm, err := h.rpmCache.GetRPM(ctx, account.ID); err == nil {
 				item.CurrentRPM = &rpm
 			}
+		}
+	}
+
+	// TPM 适用于任意配置了 base_tpm 的账号（含 apikey 类型），不限账号类型
+	if h.rpmCache != nil && account.GetBaseTPM() > 0 {
+		if tpm, err := h.rpmCache.GetTPM(ctx, account.ID); err == nil {
+			item.CurrentTPM = &tpm
 		}
 	}
 
@@ -274,6 +283,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 	var windowCosts map[int64]float64
 	var activeSessions map[int64]int
 	var rpmCounts map[int64]int
+	var tpmCounts map[int64]int
 
 	// 始终获取并发数（Redis ZCARD，极低开销）
 	if h.concurrencyService != nil {
@@ -286,6 +296,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 	windowCostAccountIDs := make([]int64, 0)
 	sessionLimitAccountIDs := make([]int64, 0)
 	rpmAccountIDs := make([]int64, 0)
+	tpmAccountIDs := make([]int64, 0)
 	sessionIdleTimeouts := make(map[int64]time.Duration) // 各账号的会话空闲超时配置
 	for i := range accounts {
 		acc := &accounts[i]
@@ -301,6 +312,10 @@ func (h *AccountHandler) List(c *gin.Context) {
 				rpmAccountIDs = append(rpmAccountIDs, acc.ID)
 			}
 		}
+		// TPM 适用于任意配置了 base_tpm 的账号（含 apikey 类型）
+		if acc.GetBaseTPM() > 0 {
+			tpmAccountIDs = append(tpmAccountIDs, acc.ID)
+		}
 	}
 
 	// 始终获取 RPM 计数（Redis GET，极低开销）
@@ -308,6 +323,14 @@ func (h *AccountHandler) List(c *gin.Context) {
 		rpmCounts, _ = h.rpmCache.GetRPMBatch(c.Request.Context(), rpmAccountIDs)
 		if rpmCounts == nil {
 			rpmCounts = make(map[int64]int)
+		}
+	}
+
+	// 始终获取 TPM 计数（Redis GET，极低开销）
+	if len(tpmAccountIDs) > 0 && h.rpmCache != nil {
+		tpmCounts, _ = h.rpmCache.GetTPMBatch(c.Request.Context(), tpmAccountIDs)
+		if tpmCounts == nil {
+			tpmCounts = make(map[int64]int)
 		}
 	}
 
@@ -374,6 +397,13 @@ func (h *AccountHandler) List(c *gin.Context) {
 		if rpmCounts != nil {
 			if rpm, ok := rpmCounts[acc.ID]; ok {
 				item.CurrentRPM = &rpm
+			}
+		}
+
+		// 添加 TPM 计数（仅当启用时）
+		if tpmCounts != nil {
+			if tpm, ok := tpmCounts[acc.ID]; ok {
+				item.CurrentTPM = &tpm
 			}
 		}
 
@@ -524,6 +554,7 @@ func (h *AccountHandler) Create(c *gin.Context) {
 	}
 	// base_rpm 输入校验：负值归零，超过 10000 截断
 	sanitizeExtraBaseRPM(req.Extra)
+	sanitizeExtraOutboundHeaders(req.Extra)
 
 	// 确定是否跳过混合渠道检查
 	skipCheck := req.ConfirmMixedChannelRisk != nil && *req.ConfirmMixedChannelRisk
@@ -608,6 +639,7 @@ func (h *AccountHandler) Update(c *gin.Context) {
 	}
 	// base_rpm 输入校验：负值归零，超过 10000 截断
 	sanitizeExtraBaseRPM(req.Extra)
+	sanitizeExtraOutboundHeaders(req.Extra)
 
 	// 确定是否跳过混合渠道检查
 	skipCheck := req.ConfirmMixedChannelRisk != nil && *req.ConfirmMixedChannelRisk
@@ -1341,6 +1373,7 @@ func (h *AccountHandler) BatchCreate(c *gin.Context) {
 
 			// base_rpm 输入校验：负值归零，超过 10000 截断
 			sanitizeExtraBaseRPM(item.Extra)
+			sanitizeExtraOutboundHeaders(item.Extra)
 
 			skipCheck := item.ConfirmMixedChannelRisk != nil && *item.ConfirmMixedChannelRisk
 
@@ -1534,6 +1567,7 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 	}
 	// base_rpm 输入校验：负值归零，超过 10000 截断
 	sanitizeExtraBaseRPM(req.Extra)
+	sanitizeExtraOutboundHeaders(req.Extra)
 
 	// 确定是否跳过混合渠道检查
 	skipCheck := req.ConfirmMixedChannelRisk != nil && *req.ConfirmMixedChannelRisk
@@ -2408,21 +2442,116 @@ func (h *AccountHandler) GetAntigravityDefaultModelMapping(c *gin.Context) {
 	response.Success(c, domain.DefaultAntigravityModelMapping)
 }
 
-// sanitizeExtraBaseRPM 对 extra map 中的 base_rpm 值进行范围校验和归一化。
-// 负值归零，超过 10000 截断为 10000。extra 为 nil 或不含 base_rpm 时无操作。
+// sanitizeExtraBaseRPM 对 extra map 中的速率限额值进行范围校验和归一化。
+//   - base_rpm：负值归零，超过 10000 截断为 10000。
+//   - base_tpm / tpm_sticky_buffer：负值归零，超过 100000000（每分钟 1 亿 token）截断。
+//
+// extra 为 nil 或不含对应键时对该键无操作。
 func sanitizeExtraBaseRPM(extra map[string]any) {
 	if extra == nil {
 		return
 	}
-	raw, ok := extra["base_rpm"]
-	if !ok {
+	if raw, ok := extra["base_rpm"]; ok {
+		v := service.ParseExtraInt(raw)
+		if v < 0 {
+			v = 0
+		} else if v > 10000 {
+			v = 10000
+		}
+		extra["base_rpm"] = v
+	}
+	for _, key := range []string{"base_tpm", "tpm_sticky_buffer"} {
+		raw, ok := extra[key]
+		if !ok {
+			continue
+		}
+		v := service.ParseExtraInt(raw)
+		if v < 0 {
+			v = 0
+		} else if v > 100000000 {
+			v = 100000000
+		}
+		extra[key] = v
+	}
+}
+
+// sanitizeExtraOutboundHeaders 对逐账号出站 Header 覆盖/删除配置做校验与归一化。
+//   - outbound_header_overrides（object）：剔除名字非法 / hop-by-hop / 受保护(authorization,x-api-key) 的项，
+//     值统一转成字符串；清理后为空则删除该键。
+//   - outbound_header_removes（array）：同样剔除非法/受保护项、去重；清理后为空则删除该键。
+//
+// 与 sanitizeExtraBaseRPM 一致，就地修改 extra；非法项静默丢弃（apply 时还有第二道兜底）。
+func sanitizeExtraOutboundHeaders(extra map[string]any) {
+	if extra == nil {
 		return
 	}
-	v := service.ParseExtraInt(raw)
-	if v < 0 {
-		v = 0
-	} else if v > 10000 {
-		v = 10000
+
+	if raw, ok := extra["outbound_header_overrides"]; ok {
+		cleaned := map[string]any{}
+		if m, ok := raw.(map[string]any); ok {
+			for k, v := range m {
+				name := strings.TrimSpace(k)
+				if name == "" || !isValidHeaderName(name) || service.IsForbiddenHeaderName(name) || isProtectedAccountHeader(name) {
+					continue
+				}
+				cleaned[name] = headerValueToString(v)
+			}
+		}
+		// 显式提供该键时始终写回（哪怕为空）：更新路径是 JSONB key 级 merge，
+		// 若在此 delete 会导致空值无法覆盖 DB 中旧配置，关闭操作静默失效。
+		extra["outbound_header_overrides"] = cleaned
 	}
-	extra["base_rpm"] = v
+
+	if raw, ok := extra["outbound_header_removes"]; ok {
+		seen := map[string]struct{}{}
+		cleaned := []any{}
+		if arr, ok := raw.([]any); ok {
+			for _, item := range arr {
+				s, ok := item.(string)
+				if !ok {
+					continue
+				}
+				name := strings.TrimSpace(s)
+				if name == "" || !isValidHeaderName(name) || service.IsForbiddenHeaderName(name) || isProtectedAccountHeader(name) {
+					continue
+				}
+				key := strings.ToLower(name)
+				if _, dup := seen[key]; dup {
+					continue
+				}
+				seen[key] = struct{}{}
+				cleaned = append(cleaned, name)
+			}
+		}
+		extra["outbound_header_removes"] = cleaned
+	}
+}
+
+var accountHeaderNameRegex = regexp.MustCompile(`^[A-Za-z0-9!#$%&'*+\-.^_` + "`" + `|~]+$`)
+
+func isValidHeaderName(name string) bool {
+	return accountHeaderNameRegex.MatchString(name)
+}
+
+// isProtectedAccountHeader 与 service.isProtectedOutboundHeader 保持一致：
+// authorization / x-api-key 禁止逐账号覆盖或删除。
+func isProtectedAccountHeader(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "authorization", "x-api-key":
+		return true
+	}
+	return false
+}
+
+func headerValueToString(v any) string {
+	switch val := v.(type) {
+	case string:
+		return val
+	case fmt.Stringer:
+		return val.String()
+	case nil:
+		return ""
+	default:
+		return fmt.Sprintf("%v", val)
+	}
 }

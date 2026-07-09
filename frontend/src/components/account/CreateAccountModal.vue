@@ -2381,6 +2381,97 @@
           </div>
         </div>
 
+        <!-- TPM Limit -->
+        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+          <div class="mb-3 flex items-center justify-between">
+            <div>
+              <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.tpmLimit.label') }}</label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.quotaControl.tpmLimit.hint') }}
+              </p>
+            </div>
+            <button
+              type="button"
+              @click="tpmLimitEnabled = !tpmLimitEnabled"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                tpmLimitEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  tpmLimitEnabled ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+
+          <div v-if="tpmLimitEnabled" class="space-y-4">
+            <div>
+              <label class="input-label">{{ t('admin.accounts.quotaControl.tpmLimit.baseTpm') }}</label>
+              <input
+                v-model.number="baseTpm"
+                type="number"
+                min="1"
+                step="1000"
+                class="input"
+                :placeholder="t('admin.accounts.quotaControl.tpmLimit.baseTpmPlaceholder')"
+              />
+              <p class="input-hint">{{ t('admin.accounts.quotaControl.tpmLimit.baseTpmHint') }}</p>
+            </div>
+
+            <div>
+              <label class="input-label">{{ t('admin.accounts.quotaControl.rpmLimit.strategy') }}</label>
+              <div class="flex gap-2">
+                <button
+                  type="button"
+                  @click="tpmStrategy = 'tiered'"
+                  :class="[
+                    'flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-all',
+                    tpmStrategy === 'tiered'
+                      ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
+                  ]"
+                >
+                  <div class="text-center">
+                    <div>{{ t('admin.accounts.quotaControl.rpmLimit.strategyTiered') }}</div>
+                    <div class="mt-0.5 text-[10px] opacity-70">{{ t('admin.accounts.quotaControl.rpmLimit.strategyTieredHint') }}</div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  @click="tpmStrategy = 'sticky_exempt'"
+                  :class="[
+                    'flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-all',
+                    tpmStrategy === 'sticky_exempt'
+                      ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
+                  ]"
+                >
+                  <div class="text-center">
+                    <div>{{ t('admin.accounts.quotaControl.rpmLimit.strategyStickyExempt') }}</div>
+                    <div class="mt-0.5 text-[10px] opacity-70">{{ t('admin.accounts.quotaControl.rpmLimit.strategyStickyExemptHint') }}</div>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            <div v-if="tpmStrategy === 'tiered'">
+              <label class="input-label">{{ t('admin.accounts.quotaControl.tpmLimit.stickyBuffer') }}</label>
+              <input
+                v-model.number="tpmStickyBuffer"
+                type="number"
+                min="1"
+                step="1000"
+                class="input"
+                :placeholder="t('admin.accounts.quotaControl.tpmLimit.stickyBufferPlaceholder')"
+              />
+              <p class="input-hint">{{ t('admin.accounts.quotaControl.tpmLimit.stickyBufferHint') }}</p>
+            </div>
+          </div>
+        </div>
+
         <!-- TLS Fingerprint -->
         <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
           <div class="flex items-center justify-between">
@@ -3624,6 +3715,10 @@ const rpmLimitEnabled = ref(false)
 const baseRpm = ref<number | null>(null)
 const rpmStrategy = ref<'tiered' | 'sticky_exempt'>('tiered')
 const rpmStickyBuffer = ref<number | null>(null)
+const tpmLimitEnabled = ref(false)
+const baseTpm = ref<number | null>(null)
+const tpmStrategy = ref<'tiered' | 'sticky_exempt'>('tiered')
+const tpmStickyBuffer = ref<number | null>(null)
 const userMsgQueueMode = ref('')
 const umqModeOptions = computed(() => [
   { value: '', label: t('admin.accounts.quotaControl.rpmLimit.umqModeOff') },
@@ -4324,6 +4419,10 @@ const resetForm = () => {
   baseRpm.value = null
   rpmStrategy.value = 'tiered'
   rpmStickyBuffer.value = null
+  tpmLimitEnabled.value = false
+  baseTpm.value = null
+  tpmStrategy.value = 'tiered'
+  tpmStickyBuffer.value = null
   userMsgQueueMode.value = ''
   tlsFingerprintEnabled.value = false
   tlsFingerprintProfileId.value = null
@@ -5383,6 +5482,18 @@ const handleAnthropicExchange = async (authCode: string) => {
       }
     }
 
+    // Add TPM limit settings
+    if (tpmLimitEnabled.value) {
+      const DEFAULT_BASE_TPM = 200000
+      extra.base_tpm = (baseTpm.value != null && baseTpm.value > 0)
+        ? baseTpm.value
+        : DEFAULT_BASE_TPM
+      extra.tpm_strategy = tpmStrategy.value
+      if (tpmStickyBuffer.value != null && tpmStickyBuffer.value > 0) {
+        extra.tpm_sticky_buffer = tpmStickyBuffer.value
+      }
+    }
+
     // UMQ mode（独立于 RPM）
     if (userMsgQueueMode.value) {
       extra.user_msg_queue_mode = userMsgQueueMode.value
@@ -5506,6 +5617,18 @@ const handleCookieAuth = async (sessionKey: string) => {
           extra.rpm_strategy = rpmStrategy.value
           if (rpmStickyBuffer.value != null && rpmStickyBuffer.value > 0) {
             extra.rpm_sticky_buffer = rpmStickyBuffer.value
+          }
+        }
+
+        // Add TPM limit settings
+        if (tpmLimitEnabled.value) {
+          const DEFAULT_BASE_TPM = 200000
+          extra.base_tpm = (baseTpm.value != null && baseTpm.value > 0)
+            ? baseTpm.value
+            : DEFAULT_BASE_TPM
+          extra.tpm_strategy = tpmStrategy.value
+          if (tpmStickyBuffer.value != null && tpmStickyBuffer.value > 0) {
+            extra.tpm_sticky_buffer = tpmStickyBuffer.value
           }
         }
 

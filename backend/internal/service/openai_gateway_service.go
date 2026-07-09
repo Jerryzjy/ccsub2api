@@ -3496,6 +3496,9 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 		req.Header.Set("content-type", "application/json")
 	}
 
+	// 逐账号出站 Header 覆盖/删除
+	applyAccountOutboundHeaderOverrides(req.Header, account)
+
 	return req, nil
 }
 
@@ -4252,6 +4255,9 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	if req.Header.Get("content-type") == "" {
 		req.Header.Set("content-type", "application/json")
 	}
+
+	// 逐账号出站 Header 覆盖/删除（在 UA override 之后应用，确保覆盖生效）
+	applyAccountOutboundHeaderOverrides(req.Header, account)
 
 	return req, nil
 }

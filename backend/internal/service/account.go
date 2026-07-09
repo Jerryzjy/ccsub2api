@@ -1684,6 +1684,81 @@ func (a *Account) GetCustomBaseURL() string {
 	return a.GetExtraString("custom_base_url")
 }
 
+// GetOutboundHeaderOverrides 返回逐账号出站 Header 覆盖表（header 名 → 值）。
+// 从 Extra["outbound_header_overrides"] 读取（JSONB object）。空/无键返回 nil。
+// 结构性 header（hop-by-hop）与 authorization/x-api-key 在此处被剔除，作为 apply 前的兜底护栏，
+// 即使脏数据落库也不会被应用。
+func (a *Account) GetOutboundHeaderOverrides() map[string]string {
+	if a.Extra == nil {
+		return nil
+	}
+	raw, ok := a.Extra["outbound_header_overrides"]
+	if !ok || raw == nil {
+		return nil
+	}
+	m, ok := raw.(map[string]any)
+	if !ok {
+		return nil
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		name := strings.TrimSpace(k)
+		if name == "" || IsForbiddenHeaderName(name) || isProtectedOutboundHeader(name) {
+			continue
+		}
+		switch val := v.(type) {
+		case string:
+			out[name] = val
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// GetOutboundHeaderRemoves 返回逐账号出站需删除的 Header 名列表（omit 模式）。
+// 从 Extra["outbound_header_removes"] 读取（JSONB array）。同样剔除受保护 header。
+func (a *Account) GetOutboundHeaderRemoves() []string {
+	if a.Extra == nil {
+		return nil
+	}
+	raw, ok := a.Extra["outbound_header_removes"]
+	if !ok || raw == nil {
+		return nil
+	}
+	arr, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(arr))
+	for _, item := range arr {
+		s, ok := item.(string)
+		if !ok {
+			continue
+		}
+		name := strings.TrimSpace(s)
+		if name == "" || IsForbiddenHeaderName(name) || isProtectedOutboundHeader(name) {
+			continue
+		}
+		out = append(out, name)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// isProtectedOutboundHeader 判断 header 是否受保护、禁止逐账号覆盖/删除。
+// authorization / x-api-key 由 token/鉴权体系统一管理，覆盖它们会静默弄坏账号。
+func isProtectedOutboundHeader(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "authorization", "x-api-key":
+		return true
+	}
+	return false
+}
+
 // IsCacheTTLOverrideEnabled 检查是否启用缓存 TTL 强制替换
 // 仅适用于 Anthropic OAuth/SetupToken 类型账号
 // 启用后将所有 cache creation tokens 归入指定的 TTL 类型（5m 或 1h）
@@ -2367,6 +2442,86 @@ func (a *Account) CheckRPMSchedulability(currentRPM int) WindowCostSchedulabilit
 	// tiered: 黄区 + 红区
 	buffer := a.GetRPMStickyBuffer()
 	if currentRPM < baseRPM+buffer {
+		return WindowCostStickyOnly
+	}
+	return WindowCostNotSchedulable
+}
+
+// GetBaseTPM 获取基础 TPM 限制（每分钟 token 数，含输入+输出+缓存）
+// 返回 0 表示未启用（负数视为无效配置，按 0 处理）
+func (a *Account) GetBaseTPM() int {
+	if a.Extra == nil {
+		return 0
+	}
+	if v, ok := a.Extra["base_tpm"]; ok {
+		val := parseExtraInt(v)
+		if val > 0 {
+			return val
+		}
+	}
+	return 0
+}
+
+// GetTPMStrategy 获取 TPM 策略
+// "tiered" = 三区模型（默认）, "sticky_exempt" = 粘性豁免
+func (a *Account) GetTPMStrategy() string {
+	if a.Extra == nil {
+		return "tiered"
+	}
+	if v, ok := a.Extra["tpm_strategy"]; ok {
+		if s, ok := v.(string); ok && s == "sticky_exempt" {
+			return "sticky_exempt"
+		}
+	}
+	return "tiered"
+}
+
+// GetTPMStickyBuffer 获取 TPM 粘性缓冲（token 数）
+// 手动 override 最高优先级；否则默认取 baseTPM/5，给粘性会话约 20% 头寸。
+func (a *Account) GetTPMStickyBuffer() int {
+	if a.Extra == nil {
+		return 0
+	}
+
+	if v, ok := a.Extra["tpm_sticky_buffer"]; ok {
+		val := parseExtraInt(v)
+		if val > 0 {
+			return val
+		}
+	}
+
+	base := a.GetBaseTPM()
+	if base <= 0 {
+		return 0
+	}
+
+	buffer := base / 5
+	if buffer < 1 {
+		buffer = 1
+	}
+	return buffer
+}
+
+// CheckTPMSchedulability 根据当前分钟已消耗 token 数检查调度状态
+// 复用 WindowCostSchedulability 三态：Schedulable / StickyOnly / NotSchedulable
+func (a *Account) CheckTPMSchedulability(currentTPM int) WindowCostSchedulability {
+	baseTPM := a.GetBaseTPM()
+	if baseTPM <= 0 {
+		return WindowCostSchedulable
+	}
+
+	if currentTPM < baseTPM {
+		return WindowCostSchedulable
+	}
+
+	strategy := a.GetTPMStrategy()
+	if strategy == "sticky_exempt" {
+		return WindowCostStickyOnly // 粘性豁免无红区
+	}
+
+	// tiered: 黄区 + 红区
+	buffer := a.GetTPMStickyBuffer()
+	if currentTPM < baseTPM+buffer {
 		return WindowCostStickyOnly
 	}
 	return WindowCostNotSchedulable

@@ -28,6 +28,13 @@
       </svg>
     </CapacityBadge>
 
+    <!-- TPM 限制 -->
+    <CapacityBadge v-if="showTpmLimit" :color-class="tpmClass" :tooltip="tpmTooltip" :current="tpmCurrentLabel" :max="tpmMaxLabel" :suffix="tpmStrategyTag">
+      <svg class="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="m3.75 13.5 10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z" />
+      </svg>
+    </CapacityBadge>
+
     <!-- API Key 账号配额限制 -->
     <QuotaBadge v-if="showDailyQuota" :used="account.quota_daily_used ?? 0" :limit="account.quota_daily_limit!" label="D" />
     <QuotaBadge v-if="showWeeklyQuota" :used="account.quota_weekly_used ?? 0" :limit="account.quota_weekly_limit!" label="W" />
@@ -208,6 +215,62 @@ const rpmTooltip = computed(() => {
   const base = props.account.base_rpm ?? 0
   const buffer = rpmBuffer.value
   if (rpmStrategy.value === 'tiered') {
+    if (current >= base + buffer) return t('admin.accounts.capacity.rpm.tieredBlocked', { buffer })
+    if (current >= base) return t('admin.accounts.capacity.rpm.tieredStickyOnly', { buffer })
+    if (current >= base * 0.8) return t('admin.accounts.capacity.rpm.tieredWarning')
+    return t('admin.accounts.capacity.rpm.tieredNormal')
+  } else {
+    if (current >= base) return t('admin.accounts.capacity.rpm.stickyExemptOver')
+    if (current >= base * 0.8) return t('admin.accounts.capacity.rpm.stickyExemptWarning')
+    return t('admin.accounts.capacity.rpm.stickyExemptNormal')
+  }
+})
+
+// ====== TPM（每分钟 token）======
+// 适用于任意配置了 base_tpm 的账号（含 apikey 类型），不限账号类型
+const showTpmLimit = computed(() =>
+  props.account.base_tpm != null &&
+  props.account.base_tpm > 0
+)
+
+const currentTPM = computed(() => props.account.current_tpm ?? 0)
+const tpmStrategy = computed(() => props.account.tpm_strategy || 'tiered')
+const tpmStrategyTag = computed(() => tpmStrategy.value === 'sticky_exempt' ? '[S]' : '[T]')
+
+const tpmBuffer = computed(() => {
+  const base = props.account.base_tpm || 0
+  return props.account.tpm_sticky_buffer ?? (base > 0 ? Math.max(1, Math.floor(base / 5)) : 0)
+})
+
+const formatTokenCompact = (value: number) => {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value % 1_000_000 === 0 ? 0 : 1)}M`
+  if (value >= 1_000) return `${Math.round(value / 1_000)}k`
+  return String(value)
+}
+const tpmCurrentLabel = computed(() => formatTokenCompact(currentTPM.value))
+const tpmMaxLabel = computed(() => formatTokenCompact(props.account.base_tpm ?? 0))
+
+const tpmClass = computed(() => {
+  if (!showTpmLimit.value) return ''
+  const current = currentTPM.value
+  const base = props.account.base_tpm ?? 0
+  const buffer = tpmBuffer.value
+  if (tpmStrategy.value === 'tiered') {
+    if (current >= base + buffer) return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+    if (current >= base) return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
+  } else {
+    if (current >= base) return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
+  }
+  if (current >= base * 0.8) return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+  return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+})
+
+const tpmTooltip = computed(() => {
+  if (!showTpmLimit.value) return ''
+  const current = currentTPM.value
+  const base = props.account.base_tpm ?? 0
+  const buffer = tpmBuffer.value
+  if (tpmStrategy.value === 'tiered') {
     if (current >= base + buffer) return t('admin.accounts.capacity.rpm.tieredBlocked', { buffer })
     if (current >= base) return t('admin.accounts.capacity.rpm.tieredStickyOnly', { buffer })
     if (current >= base * 0.8) return t('admin.accounts.capacity.rpm.tieredWarning')

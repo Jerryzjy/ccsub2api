@@ -31,6 +31,10 @@ const (
 	// 格式: rpm:{accountID}:{minuteTimestamp}
 	rpmKeyPrefix = "rpm:"
 
+	// TPM 计数器键前缀
+	// 格式: tpm:{accountID}:{minuteTimestamp}
+	tpmKeyPrefix = "tpm:"
+
 	// RPM 计数器 TTL（120 秒，覆盖当前分钟窗口 + 冗余）
 	rpmKeyTTL = 120 * time.Second
 )
@@ -48,12 +52,17 @@ func NewRPMCache(rdb *redis.Client) service.RPMCache {
 // currentMinuteKey 获取当前分钟的完整 Redis key
 // 使用 rdb.Time() 获取 Redis 服务端时间，避免多实例时钟偏差
 func (c *RPMCacheImpl) currentMinuteKey(ctx context.Context, accountID int64) (string, error) {
+	return c.currentMinuteKeyWithPrefix(ctx, rpmKeyPrefix, accountID)
+}
+
+// currentMinuteKeyWithPrefix 按指定前缀获取当前分钟的完整 Redis key
+func (c *RPMCacheImpl) currentMinuteKeyWithPrefix(ctx context.Context, prefix string, accountID int64) (string, error) {
 	serverTime, err := c.rdb.Time(ctx).Result()
 	if err != nil {
 		return "", fmt.Errorf("redis TIME: %w", err)
 	}
 	minuteTS := serverTime.Unix() / 60
-	return fmt.Sprintf("%s%d:%d", rpmKeyPrefix, accountID, minuteTS), nil
+	return fmt.Sprintf("%s%d:%d", prefix, accountID, minuteTS), nil
 }
 
 // currentMinuteSuffix 获取当前分钟时间戳后缀（供批量操作使用）
@@ -127,6 +136,78 @@ func (c *RPMCacheImpl) GetRPMBatch(ctx context.Context, accountIDs []int64) (map
 
 	if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
 		return nil, fmt.Errorf("rpm batch get: %w", err)
+	}
+
+	result := make(map[int64]int, len(accountIDs))
+	for id, cmd := range cmds {
+		if val, err := cmd.Int(); err == nil {
+			result[id] = val
+		} else {
+			result[id] = 0
+		}
+	}
+	return result, nil
+}
+
+// AddTPM 原子累加 token 数并返回当前分钟的累计 token 计数
+// 使用 TxPipeline (MULTI/EXEC) 执行 INCRBY + EXPIRE，保证原子性且兼容 Redis Cluster
+func (c *RPMCacheImpl) AddTPM(ctx context.Context, accountID int64, tokens int) (int, error) {
+	if tokens <= 0 {
+		return c.GetTPM(ctx, accountID)
+	}
+	key, err := c.currentMinuteKeyWithPrefix(ctx, tpmKeyPrefix, accountID)
+	if err != nil {
+		return 0, fmt.Errorf("tpm add: %w", err)
+	}
+
+	pipe := c.rdb.TxPipeline()
+	incrCmd := pipe.IncrBy(ctx, key, int64(tokens))
+	pipe.Expire(ctx, key, rpmKeyTTL)
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		return 0, fmt.Errorf("tpm add: %w", err)
+	}
+
+	return int(incrCmd.Val()), nil
+}
+
+// GetTPM 获取当前分钟的累计 token 计数
+func (c *RPMCacheImpl) GetTPM(ctx context.Context, accountID int64) (int, error) {
+	key, err := c.currentMinuteKeyWithPrefix(ctx, tpmKeyPrefix, accountID)
+	if err != nil {
+		return 0, fmt.Errorf("tpm get: %w", err)
+	}
+
+	val, err := c.rdb.Get(ctx, key).Int()
+	if errors.Is(err, redis.Nil) {
+		return 0, nil // 当前分钟无记录
+	}
+	if err != nil {
+		return 0, fmt.Errorf("tpm get: %w", err)
+	}
+	return val, nil
+}
+
+// GetTPMBatch 批量获取多个账号的当前分钟 token 计数（使用 Pipeline）
+func (c *RPMCacheImpl) GetTPMBatch(ctx context.Context, accountIDs []int64) (map[int64]int, error) {
+	if len(accountIDs) == 0 {
+		return map[int64]int{}, nil
+	}
+
+	minuteSuffix, err := c.currentMinuteSuffix(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("tpm batch get: %w", err)
+	}
+
+	pipe := c.rdb.Pipeline()
+	cmds := make(map[int64]*redis.StringCmd, len(accountIDs))
+	for _, id := range accountIDs {
+		key := fmt.Sprintf("%s%d:%s", tpmKeyPrefix, id, minuteSuffix)
+		cmds[id] = pipe.Get(ctx, key)
+	}
+
+	if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
+		return nil, fmt.Errorf("tpm batch get: %w", err)
 	}
 
 	result := make(map[int64]int, len(accountIDs))
