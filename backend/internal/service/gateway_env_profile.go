@@ -23,6 +23,22 @@ import (
 
 // envOSProfile 只承载随 OS 变化的两个头字段；<env> 块的机器字段由 canonicalEnvValues
 // 统一按 XStainlessOS 派生，保证头与体一致、且只有一个真源。
+//
+// 为什么这里 **不** 带 TLS / Runtime 维度（重要，勿加）：
+//
+//	TLS 的 JA3/JA4 指纹刻画的是"TLS 库"，不是操作系统。Claude Code 是 Node.js 应用，
+//	用的是 Node 自带的 OpenSSL——同一个 Node 版本在 Windows/macOS/Linux 上产出的
+//	ClientHello（cipher/扩展顺序/曲线）**完全一致**，JA3 相同。所以真 Claude Code 在三个
+//	OS 上发的是 **同一个 JA3**（都是 node-24.x），TLS 指纹跟随 **runtime**、不跟随 OS。
+//
+//	因此：envOSProfile 只动 X-Stainless-OS/Arch，**故意保持 X-Stainless-Runtime /
+//	Runtime-Version 不变**（统一 node/v24.x），与那个单一的 node-24.x TLS 档天然一致。
+//	若在这里再按 OS 分 TLS 档，就会让本网关在不同 OS 上发不同 JA3——而真 Claude Code
+//	从不这样——反而制造一个真客户端没有的新指纹（与"伪造 timezone"是同一类错误）。
+//
+//	（claude2api 有 per-OS TLS 档，那是它的过度设计，同它把 X-Stainless-OS 写成小写一样
+//	不足取信；除非拿到"同版本 Claude Code 在不同 OS 上 JA3 确有差异"的真实抓包，否则
+//	per-OS TLS 是净负。）
 type envOSProfile struct {
 	XStainlessOS   string // "MacOS" / "Windows" / "Linux"
 	XStainlessArch string // "arm64" / "x64"

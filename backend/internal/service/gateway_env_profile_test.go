@@ -72,6 +72,33 @@ func TestApplyAccountEnvProfileHeaders(t *testing.T) {
 	}
 }
 
+// TestEnvOSProfile_LeavesRuntimeUntouched codifies the invariant that keeps the
+// single Node TLS fingerprint valid across all OS profiles:
+//
+// TLS JA3 fingerprints the TLS *library* (Node/OpenSSL), not the OS. Real Claude
+// Code sends the SAME JA3 on Windows/macOS/Linux (all node-24.x). So the OS
+// profile must vary ONLY X-Stainless-OS/Arch and must NEVER touch the runtime
+// identity (X-Stainless-Runtime / X-Stainless-Runtime-Version) that the TLS
+// fingerprint is keyed to. If a future change makes applyAccountEnvProfileHeaders
+// mutate the runtime headers, this test fails on purpose — do not "fix" it by
+// adding per-OS TLS; fix the mutation.
+func TestEnvOSProfile_LeavesRuntimeUntouched(t *testing.T) {
+	for _, seed := range []string{"seed-mac", "seed-win", "seed-linux", "deadbeef", ""} {
+		h := http.Header{}
+		setHeaderRaw(h, "X-Stainless-Runtime", "node")
+		setHeaderRaw(h, "X-Stainless-Runtime-Version", "v24.3.0")
+
+		applyAccountEnvProfileHeaders(h, envOSProfileForSeed(seed))
+
+		if got := getHeaderRaw(h, "X-Stainless-Runtime"); got != "node" {
+			t.Errorf("seed %q: X-Stainless-Runtime mutated to %q (must stay node; TLS is keyed to runtime, not OS)", seed, got)
+		}
+		if got := getHeaderRaw(h, "X-Stainless-Runtime-Version"); got != "v24.3.0" {
+			t.Errorf("seed %q: X-Stainless-Runtime-Version mutated to %q (must stay uniform to match the single node TLS JA3)", seed, got)
+		}
+	}
+}
+
 // TestEnvProfileHeadBodyConsistency verifies the header OS and the <env> block
 // platform stay consistent (capitalized header vs lowercase env platform).
 func TestEnvProfileHeadBodyConsistency(t *testing.T) {
