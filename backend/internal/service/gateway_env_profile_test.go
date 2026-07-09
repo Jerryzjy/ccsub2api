@@ -2,6 +2,7 @@ package service
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -83,9 +84,41 @@ func TestEnvProfileHeadBodyConsistency(t *testing.T) {
 		{"Linux", "linux"},
 	}
 	for _, c := range cases {
-		platform, _, _ := canonicalEnvValues(c.stainlessOS)
+		_, platform, _, _ := canonicalEnvValues(c.stainlessOS)
 		if platform != c.wantPlatform {
 			t.Errorf("stainlessOS %q -> env platform %q, want %q", c.stainlessOS, platform, c.wantPlatform)
 		}
+	}
+}
+
+// TestCanonicalWorkingDirConsistency: Working directory path must be OS-correct
+// and never contain real user names.
+func TestCanonicalWorkingDirConsistency(t *testing.T) {
+	cases := []struct {
+		stainlessOS    string
+		wantWorkingDir string
+	}{
+		{"MacOS", "/Users/dev/project"},
+		{"Windows", `C:\Users\dev\project`},
+		{"Linux", "/home/dev/project"},
+	}
+	for _, c := range cases {
+		wd, _, _, _ := canonicalEnvValues(c.stainlessOS)
+		if wd != c.wantWorkingDir {
+			t.Errorf("stainlessOS %q -> working dir %q, want %q", c.stainlessOS, wd, c.wantWorkingDir)
+		}
+	}
+}
+
+// TestSanitizeStripsPersonalWorkingDir: 一个真用户路径如果被泄露到 <env>，
+// 必须被替换为 canonical 路径（不能让它带着用户名打到上游）。
+func TestSanitizeStripsPersonalWorkingDir(t *testing.T) {
+	original := "<env>\nWorking directory: /Users/zhongjiayu/Projects/secret-thing\nPlatform: darwin\nOS Version: Darwin 24.4.0\nShell: zsh\n</env>"
+	got := sanitizeMachineEnvText(original, "/Users/dev/project", "darwin", "Darwin 24.4.0", "zsh")
+	if strings.Contains(got, "/Users/zhongjiayu/") {
+		t.Errorf("personal working dir leaked: %s", got)
+	}
+	if !strings.Contains(got, "Working directory: /Users/dev/project") {
+		t.Errorf("working dir not canonicalized: %s", got)
 	}
 }

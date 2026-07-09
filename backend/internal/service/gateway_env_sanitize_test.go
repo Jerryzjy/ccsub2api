@@ -21,7 +21,7 @@ func TestCanonicalEnvValues(t *testing.T) {
 		{"win32", "win32"},
 	}
 	for _, tt := range tests {
-		if p, _, _ := canonicalEnvValues(tt.os); p != tt.platform {
+		if _, p, _, _ := canonicalEnvValues(tt.os); p != tt.platform {
 			t.Errorf("canonicalEnvValues(%q) platform = %q, want %q", tt.os, p, tt.platform)
 		}
 	}
@@ -30,13 +30,13 @@ func TestCanonicalEnvValues(t *testing.T) {
 func TestSanitizeMachineEnvText_OnlyInsideBlocks(t *testing.T) {
 	// Field outside a delimited block must NOT be touched (user free text).
 	free := "The user said Platform: darwin in their message."
-	if got := sanitizeMachineEnvText(free, "linux", "Linux 6.8.0-45-generic", "bash"); got != free {
+	if got := sanitizeMachineEnvText(free, "/home/dev/project", "linux", "Linux 6.8.0-45-generic", "bash"); got != free {
 		t.Errorf("free text was modified: %q", got)
 	}
 
 	// Inside <env> block: rewritten to canonical Linux.
 	in := "<env>\nPlatform: darwin\nOS Version: Darwin 24.4.0\nShell: zsh\n</env>"
-	got := sanitizeMachineEnvText(in, "linux", "Linux 6.8.0-45-generic", "bash")
+	got := sanitizeMachineEnvText(in, "/home/dev/project", "linux", "Linux 6.8.0-45-generic", "bash")
 	for _, want := range []string{"Platform: linux", "OS Version: Linux 6.8.0-45-generic", "Shell: bash"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in %q", want, got)
@@ -51,7 +51,7 @@ func TestSanitizeMachineEnvText_OnlyInsideBlocks(t *testing.T) {
 
 func TestSanitizeMachineEnvText_SystemReminder(t *testing.T) {
 	in := "prefix <system-reminder>Platform: win32\nShell: powershell</system-reminder> suffix"
-	got := sanitizeMachineEnvText(in, "linux", "Linux 6.8.0-45-generic", "bash")
+	got := sanitizeMachineEnvText(in, "/home/dev/project", "linux", "Linux 6.8.0-45-generic", "bash")
 	if !strings.Contains(got, "Platform: linux") || !strings.Contains(got, "Shell: bash") {
 		t.Errorf("system-reminder not normalized: %q", got)
 	}
