@@ -23,7 +23,7 @@ func TestUtilizationSchedulability_WindowExpiredResets(t *testing.T) {
 			"session_window_utilization": 0.95,
 		},
 	}
-	if got := expired.CheckWindowCostSchedulability(0); got != WindowCostSchedulable {
+	if got := expired.CheckWindowCostSchedulability(0, 0); got != WindowCostSchedulable {
 		t.Errorf("expired window with stale util 0.95: want Schedulable, got %v", got)
 	}
 
@@ -36,7 +36,7 @@ func TestUtilizationSchedulability_WindowExpiredResets(t *testing.T) {
 			"session_window_utilization": 0.95,
 		},
 	}
-	if got := active.CheckWindowCostSchedulability(0); got != WindowCostNotSchedulable {
+	if got := active.CheckWindowCostSchedulability(0, 0); got != WindowCostNotSchedulable {
 		t.Errorf("active window util 0.95: want NotSchedulable, got %v", got)
 	}
 
@@ -47,7 +47,7 @@ func TestUtilizationSchedulability_WindowExpiredResets(t *testing.T) {
 			"session_window_utilization": 0.95,
 		},
 	}
-	if got := noWindow.CheckWindowCostSchedulability(0); got != WindowCostNotSchedulable {
+	if got := noWindow.CheckWindowCostSchedulability(0, 0); got != WindowCostNotSchedulable {
 		t.Errorf("nil window util 0.95: want NotSchedulable, got %v", got)
 	}
 }

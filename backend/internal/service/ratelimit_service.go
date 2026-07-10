@@ -1577,6 +1577,7 @@ func (s *RateLimitService) UpdateSessionWindow(ctx context.Context, account *Acc
 	if windowEnd != nil && needInitWindow {
 		_ = s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{
 			"session_window_utilization":   nil,
+			"passive_usage_util_per_req":   nil,
 			"passive_usage_7d_utilization": nil,
 			"passive_usage_7d_reset":       nil,
 			"passive_usage_sampled_at":     nil,
@@ -1588,11 +1589,28 @@ func (s *RateLimitService) UpdateSessionWindow(ctx context.Context, account *Acc
 	}
 
 	// 被动采样：从响应头收集 5h + 7d utilization，合并为一次 DB 写入
-	extraUpdates := make(map[string]any, 4)
+	extraUpdates := make(map[string]any, 5)
 	// 5h utilization（0-1 小数），供 estimateSetupTokenUsage 使用
 	if utilStr := headers.Get("anthropic-ratelimit-unified-5h-utilization"); utilStr != "" {
 		if util, err := strconv.ParseFloat(utilStr, 64); err == nil {
 			extraUpdates["session_window_utilization"] = util
+
+			// 每请求利用率增量估计（EWMA）：Anthropic 每个成功响应都会带 5h-utilization 头，
+			// 所以相邻两次采样之差 ≈ 期间"一个请求"消耗的利用率。用它给"在飞请求"预扣额度，
+			// 消除利用率软限制在高并发下的滞后溢出。仅在同一窗口内、利用率上升时更新。
+			// 窗口重置（needInitWindow）会在下方清空，避免跨窗口污染。
+			if !needInitWindow {
+				prevUtil := account.getExtraFloat64("session_window_utilization")
+				if delta := util - prevUtil; delta > 0 {
+					prevDelta := account.getExtraFloat64("passive_usage_util_per_req")
+					const ewmaAlpha = 0.3
+					newDelta := delta
+					if prevDelta > 0 {
+						newDelta = ewmaAlpha*delta + (1-ewmaAlpha)*prevDelta
+					}
+					extraUpdates["passive_usage_util_per_req"] = newDelta
+				}
+			}
 		}
 	}
 	// 7d utilization（0-1 小数）

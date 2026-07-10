@@ -2557,9 +2557,15 @@ func (a *Account) CheckTPMSchedulability(currentTPM int) WindowCostSchedulabilit
 //   - 费用 < 阈值: WindowCostSchedulable
 //   - 费用 >= 阈值 且 < 阈值+预留: WindowCostStickyOnly
 //   - 费用 >= 阈值+预留: WindowCostNotSchedulable
-func (a *Account) CheckWindowCostSchedulability(currentWindowCost float64) WindowCostSchedulability {
+// utilizationInFlightSafetyFactor 是"在飞请求预扣"的安全系数（A 方案：保守兜量）。
+// >1 表示宁可略微高估在飞消耗、提前收手，也不放任越过 limit+reserve 红线。
+const utilizationInFlightSafetyFactor = 1.4
+
+// CheckWindowCostSchedulability 根据当前窗口费用/利用率检查调度状态。
+// inFlight 为该账号当前在飞并发请求数，用于 utilization 模式下预扣尚未计入的消耗。
+func (a *Account) CheckWindowCostSchedulability(currentWindowCost float64, inFlight int) WindowCostSchedulability {
 	// 优先使用 utilization 比例模式
-	if result := a.checkUtilizationSchedulability(); result >= 0 {
+	if result := a.checkUtilizationSchedulability(inFlight); result >= 0 {
 		return WindowCostSchedulability(result)
 	}
 
@@ -2582,8 +2588,9 @@ func (a *Account) CheckWindowCostSchedulability(currentWindowCost float64) Windo
 }
 
 // checkUtilizationSchedulability 基于 Anthropic 返回的 5h utilization 比例判断调度状态。
+// inFlight 为在飞并发请求数，用于预扣尚未回响应的利用率消耗。
 // 返回 -1 表示未启用（回退到固定额度模式）。
-func (a *Account) checkUtilizationSchedulability() int {
+func (a *Account) checkUtilizationSchedulability(inFlight int) int {
 	if a.Extra == nil {
 		return -1
 	}
@@ -2607,16 +2614,29 @@ func (a *Account) checkUtilizationSchedulability() int {
 		currentUtil = 0
 	}
 
+	// 在飞请求预扣：session_window_utilization 只反映"已回响应"的请求，正在飞、还没回响应
+	// 的请求消耗的利用率还没被计入。高并发时这批请求会一起冲过上限（就是"设 90% 却过 100%"）。
+	// 这里用"每请求利用率增量估计"×"在飞并发数"提前扣掉这部分，把有效利用率抬高，
+	// 让判定提前收手。保守起见乘一个安全系数（宁可略欠额度，也不越红线）。
+	// 全程只用利用率（比例），不涉及成本/美元；每请求估计从该账号自身采样推得，自适应套餐额度。
+	effectiveUtil := currentUtil
+	if inFlight > 0 {
+		perReqDelta := parseExtraFloat64(a.Extra["passive_usage_util_per_req"])
+		if perReqDelta > 0 {
+			effectiveUtil += float64(inFlight) * perReqDelta * utilizationInFlightSafetyFactor
+		}
+	}
+
 	// 预留比例（默认 0.1 = 10%）
 	reserveRatio := parseExtraFloat64(a.Extra["window_utilization_reserve"])
 	if reserveRatio <= 0 {
 		reserveRatio = 0.1
 	}
 
-	if currentUtil < limitRatio {
+	if effectiveUtil < limitRatio {
 		return int(WindowCostSchedulable)
 	}
-	if currentUtil < limitRatio+reserveRatio {
+	if effectiveUtil < limitRatio+reserveRatio {
 		return int(WindowCostStickyOnly)
 	}
 	return int(WindowCostNotSchedulable)

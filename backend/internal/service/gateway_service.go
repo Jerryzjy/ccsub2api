@@ -2885,7 +2885,15 @@ func (s *GatewayService) isAccountSchedulableForWindowCost(ctx context.Context, 
 	}
 
 checkSchedulability:
-	schedulability := account.CheckWindowCostSchedulability(currentCost)
+	// 在飞并发数：用于 utilization 模式预扣尚未回响应的利用率消耗（防高并发冲过红线）。
+	// 此刻本请求尚未占用槽位，计数只含其它在飞请求——正是需要预扣的部分。
+	inFlight := 0
+	if s.concurrencyService != nil {
+		if counts, err := s.concurrencyService.GetAccountConcurrencyBatch(ctx, []int64{account.ID}); err == nil {
+			inFlight = counts[account.ID]
+		}
+	}
+	schedulability := account.CheckWindowCostSchedulability(currentCost, inFlight)
 
 	switch schedulability {
 	case WindowCostSchedulable:
