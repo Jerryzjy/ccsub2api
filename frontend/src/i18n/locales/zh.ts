@@ -3798,7 +3798,7 @@ export default {
         },
         omitBillingAttribution: {
           label: '省略 billing 归因头',
-          hint: '不发送 x-anthropic-billing-header 归因块，等同真实 Claude Code 的 CLAUDE_CODE_ATTRIBUTION_HEADER=false。可规避 cch/fp 指纹算错风险，并启用跨会话 prompt 缓存共享。仅对 Anthropic OAuth 账号有效'
+          hint: '不发送 x-anthropic-billing-header 归因块，等同真实 Claude Code 的 CLAUDE_CODE_ATTRIBUTION_HEADER=false。可规避 cch/fp 指纹算错风险，并启用跨会话 prompt 缓存共享。对 Anthropic 的 OAuth 与 Setup-Token（token）账号均有效'
         },
         cacheTTLOverride: {
           label: '缓存 TTL 强制替换',
@@ -6669,7 +6669,7 @@ export default {
       },
       env_profile_diversity: {
         label: '环境画像多样化（防封）',
-        description: '开启后，为每个账号按其冻结的 device_id 分配一套自洽的 OS 画像（X-Stainless-OS/Arch 及 <env> 机器字段），打散"全车队清一色 Linux"的聚类特征。仅对 Anthropic OAuth 伪装路径生效；开启后存量账号会按 device_id 一次性确定 OS 并从此冻结。',
+        description: '开启后，为每个账号按其冻结的 device_id 分配一套自洽的 OS 画像（X-Stainless-OS/Arch 及 <env> 机器字段），打散"全车队清一色 Linux"的聚类特征。对 Anthropic 的 OAuth 与 Setup-Token（token）账号的伪装路径均生效；开启后存量账号会按 device_id 一次性确定 OS 并从此冻结。',
       },
       saveSettings: '保存设置',
       saving: '保存中...',

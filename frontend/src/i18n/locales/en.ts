@@ -3649,7 +3649,7 @@ export default {
         },
         omitBillingAttribution: {
           label: 'Omit Billing Attribution Header',
-          hint: 'Do not send the x-anthropic-billing-header block, matching real Claude Code with CLAUDE_CODE_ATTRIBUTION_HEADER=false. Avoids cch/fp fingerprint mismatch risk and enables cross-session prompt cache sharing. Anthropic OAuth accounts only'
+          hint: 'Do not send the x-anthropic-billing-header block, matching real Claude Code with CLAUDE_CODE_ATTRIBUTION_HEADER=false. Avoids cch/fp fingerprint mismatch risk and enables cross-session prompt cache sharing. Applies to both Anthropic OAuth and Setup-Token accounts'
         },
         cacheTTLOverride: {
           label: 'Cache TTL Override',
@@ -6514,7 +6514,7 @@ export default {
       },
       env_profile_diversity: {
         label: 'Environment profile diversity (anti-ban)',
-        description: 'When enabled, each account is assigned a self-consistent OS profile (X-Stainless-OS/Arch and <env> machine fields) derived from its frozen device_id, breaking the "whole fleet is one identical Linux machine" clustering signal. Applies only to the Anthropic OAuth mimicry path; existing accounts pick an OS once from their device_id and freeze it.',
+        description: 'When enabled, each account is assigned a self-consistent OS profile (X-Stainless-OS/Arch and <env> machine fields) derived from its frozen device_id, breaking the "whole fleet is one identical Linux machine" clustering signal. Applies to both Anthropic OAuth and Setup-Token accounts on the mimicry path; existing accounts pick an OS once from their device_id and freeze it.',
       },
       saveSettings: 'Save Settings',
       saving: 'Saving...',
