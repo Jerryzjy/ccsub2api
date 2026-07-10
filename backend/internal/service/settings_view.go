@@ -231,6 +231,9 @@ type SystemSettings struct {
 
 	// 允许终端用户在用量页查看自己的失败请求
 	AllowUserViewErrorRequests bool
+
+	// 环境画像多样化：为每账号按冻结 device_id 分配自洽 OS 画像
+	EnvProfileDiversityEnabled bool
 }
 
 type DefaultSubscriptionSetting struct {

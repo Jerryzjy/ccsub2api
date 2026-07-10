@@ -6667,6 +6667,10 @@ export default {
         label: '允许用户查看自己的错误请求',
         description: '开启后，用户可在用量页查看自己失败请求的精简信息（不含内部/上游错误细节）。需运维监控开启才有数据。',
       },
+      env_profile_diversity: {
+        label: '环境画像多样化（防封）',
+        description: '开启后，为每个账号按其冻结的 device_id 分配一套自洽的 OS 画像（X-Stainless-OS/Arch 及 <env> 机器字段），打散"全车队清一色 Linux"的聚类特征。仅对 Anthropic OAuth 伪装路径生效；开启后存量账号会按 device_id 一次性确定 OS 并从此冻结。',
+      },
       saveSettings: '保存设置',
       saving: '保存中...',
       settingsSaved: '设置保存成功',

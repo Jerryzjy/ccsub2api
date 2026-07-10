@@ -475,3 +475,9 @@ const AdminAPIKeyPrefix = "admin-"
 // SettingKeyAllowUserViewErrorRequests controls whether end users can view
 // their own failed requests on the usage page. Default false (opt-in).
 const SettingKeyAllowUserViewErrorRequests = "allow_user_view_error_requests"
+
+// SettingKeyEnvProfileDiversityEnabled 运行时开关：为每账号按冻结 device_id 分配一套
+// 自洽的 OS 画像（X-Stainless-OS/Arch + <env> 机器字段），打散"全车队清一色 Linux"。
+// 默认 false（opt-in）。与 config 项 gateway.scheduling.env_profile_diversity_enabled
+// 取"或"关系，任一开启即生效。
+const SettingKeyEnvProfileDiversityEnabled = "env_profile_diversity_enabled"

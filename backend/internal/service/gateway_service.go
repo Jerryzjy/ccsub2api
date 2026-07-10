@@ -7065,8 +7065,8 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 
 	// 环境画像多样化：开启后按账号冻结 device_id 派生一套 OS 画像，覆盖全局统一的 Linux。
 	// envOS 同时驱动 <env> 体归一（此处）与 X-Stainless-OS/Arch 头覆盖（mimic 之后），保证头体一致。
-	envProfileActive := mimicClaudeCode && s.cfg != nil &&
-		s.cfg.Gateway.Scheduling.EnvProfileDiversityEnabled && fingerprint != nil && fingerprint.ClientID != ""
+	envProfileActive := mimicClaudeCode && fingerprint != nil && fingerprint.ClientID != "" &&
+		s.envProfileDiversityEnabled(ctx)
 	envOS := claude.DefaultHeaders["X-Stainless-OS"]
 	var accountEnvProfile envOSProfile
 	if envProfileActive {
@@ -10642,8 +10642,8 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	}
 
 	// 环境画像多样化：与 buildUpstreamRequest 对称。
-	ctEnvProfileActive := mimicClaudeCode && s.cfg != nil &&
-		s.cfg.Gateway.Scheduling.EnvProfileDiversityEnabled && ctFingerprint != nil && ctFingerprint.ClientID != ""
+	ctEnvProfileActive := mimicClaudeCode && ctFingerprint != nil && ctFingerprint.ClientID != "" &&
+		s.envProfileDiversityEnabled(ctx)
 	ctEnvOS := claude.DefaultHeaders["X-Stainless-OS"]
 	var ctAccountEnvProfile envOSProfile
 	if ctEnvProfileActive {

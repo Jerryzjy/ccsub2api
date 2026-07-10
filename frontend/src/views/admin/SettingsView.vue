@@ -4656,6 +4656,22 @@
                 <span class="toggle-slider"></span>
               </label>
             </div>
+
+            <!-- Env profile diversity (anti-ban) -->
+            <div class="flex items-center justify-between border-t border-gray-100 pt-4 dark:border-dark-700">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.env_profile_diversity.label') }}
+                </label>
+                <p class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.env_profile_diversity.description') }}
+                </p>
+              </div>
+              <label class="toggle">
+                <input v-model="form.env_profile_diversity_enabled" type="checkbox" />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
           </div>
         </div>
         </div>
@@ -7854,6 +7870,7 @@ const form = reactive<SettingsForm>({
   affiliate_enabled: false,
   // Allow user view error requests
   allow_user_view_error_requests: false,
+  env_profile_diversity_enabled: false,
 });
 
 const authSourceDefaults = reactive<AuthSourceDefaultsState>(
@@ -9020,6 +9037,7 @@ async function saveSettings() {
       // Affiliate (邀请返利) feature switch
       affiliate_enabled: form.affiliate_enabled,
       allow_user_view_error_requests: form.allow_user_view_error_requests,
+      env_profile_diversity_enabled: form.env_profile_diversity_enabled,
     };
 
     // 仅当 openai_fast_policy_settings 已成功从后端加载时才回写，

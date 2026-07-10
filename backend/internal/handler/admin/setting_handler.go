@@ -304,6 +304,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		AffiliateEnabled: settings.AffiliateEnabled,
 
 		AllowUserViewErrorRequests: settings.AllowUserViewErrorRequests,
+
+		EnvProfileDiversityEnabled: settings.EnvProfileDiversityEnabled,
 	}
 
 	// OpenAI fast policy (stored under a dedicated setting key)
@@ -674,6 +676,8 @@ type UpdateSettingsRequest struct {
 	AuthSourceDingTalkPlatformQuotas map[string]*service.DefaultPlatformQuotaSetting `json:"auth_source_default_dingtalk_platform_quotas"`
 
 	AllowUserViewErrorRequests *bool `json:"allow_user_view_error_requests"`
+
+	EnvProfileDiversityEnabled *bool `json:"env_profile_diversity_enabled"`
 }
 
 // UpdateSettings 更新系统设置
@@ -1619,6 +1623,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.AllowUserViewErrorRequests
 		}(),
+		EnvProfileDiversityEnabled: func() bool {
+			if req.EnvProfileDiversityEnabled != nil {
+				return *req.EnvProfileDiversityEnabled
+			}
+			return previousSettings.EnvProfileDiversityEnabled
+		}(),
 		OpsMonitoringEnabled: func() bool {
 			if req.OpsMonitoringEnabled != nil {
 				return *req.OpsMonitoringEnabled
@@ -2145,6 +2155,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		CyberSessionBlockEnabled:    updatedSettings.CyberSessionBlockEnabled,
 		CyberSessionBlockTTLSeconds: updatedSettings.CyberSessionBlockTTLSeconds,
 		AllowUserViewErrorRequests:  updatedSettings.AllowUserViewErrorRequests,
+		EnvProfileDiversityEnabled:  updatedSettings.EnvProfileDiversityEnabled,
 	}
 	if fastPolicy, err := h.settingService.GetOpenAIFastPolicySettings(c.Request.Context()); err != nil {
 		slog.Error("openai_fast_policy_settings_get_failed", "error", err)

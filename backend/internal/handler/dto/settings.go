@@ -262,6 +262,9 @@ type SystemSettings struct {
 
 	// 允许终端用户在用量页查看自己的失败请求
 	AllowUserViewErrorRequests bool `json:"allow_user_view_error_requests"`
+
+	// 环境画像多样化开关（防封）
+	EnvProfileDiversityEnabled bool `json:"env_profile_diversity_enabled"`
 }
 
 type DefaultSubscriptionSetting struct {

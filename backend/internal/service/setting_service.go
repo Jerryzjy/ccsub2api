@@ -1038,6 +1038,17 @@ func (s *SettingService) IsUserErrorViewAllowed(ctx context.Context) bool {
 	return vals[SettingKeyAllowUserViewErrorRequests] == "true"
 }
 
+// IsEnvProfileDiversityEnabled reads the env-profile-diversity switch directly from
+// the settings store. Fail-closed: on error returns false (opt-in default).
+func (s *SettingService) IsEnvProfileDiversityEnabled(ctx context.Context) bool {
+	vals, err := s.settingRepo.GetMultiple(ctx, []string{SettingKeyEnvProfileDiversityEnabled})
+	if err != nil {
+		slog.Warn("failed to get env_profile_diversity_enabled setting, defaulting to false", "error", err)
+		return false
+	}
+	return vals[SettingKeyEnvProfileDiversityEnabled] == "true"
+}
+
 // GetAntigravityUserAgentVersion 返回 Antigravity 上游请求使用的版本号。
 // 后台设置优先；为空、缺失或非法时回退到 ANTIGRAVITY_USER_AGENT_VERSION / 内置默认值。
 func (s *SettingService) GetAntigravityUserAgentVersion(ctx context.Context) string {
@@ -2027,6 +2038,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	}
 
 	updates[SettingKeyAllowUserViewErrorRequests] = strconv.FormatBool(settings.AllowUserViewErrorRequests)
+	updates[SettingKeyEnvProfileDiversityEnabled] = strconv.FormatBool(settings.EnvProfileDiversityEnabled)
 
 	return updates, nil
 }
@@ -2960,6 +2972,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		openAIAdvancedSchedulerSettingKey:            "false",
 
 		SettingKeyAllowUserViewErrorRequests: "false",
+		SettingKeyEnvProfileDiversityEnabled: "false",
 	}
 
 	return s.settingRepo.SetMultiple(ctx, defaults)
@@ -3534,6 +3547,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	}
 
 	result.AllowUserViewErrorRequests = settings[SettingKeyAllowUserViewErrorRequests] == "true" // default false
+	result.EnvProfileDiversityEnabled = settings[SettingKeyEnvProfileDiversityEnabled] == "true" // default false
 
 	return result
 }

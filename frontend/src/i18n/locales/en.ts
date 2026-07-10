@@ -6512,6 +6512,10 @@ export default {
         label: 'Allow users to view their own error requests',
         description: 'When enabled, users can see a redacted view of their failed requests on the usage page (no internal/upstream details). Requires ops monitoring enabled to have data.',
       },
+      env_profile_diversity: {
+        label: 'Environment profile diversity (anti-ban)',
+        description: 'When enabled, each account is assigned a self-consistent OS profile (X-Stainless-OS/Arch and <env> machine fields) derived from its frozen device_id, breaking the "whole fleet is one identical Linux machine" clustering signal. Applies only to the Anthropic OAuth mimicry path; existing accounts pick an OS once from their device_id and freeze it.',
+      },
       saveSettings: 'Save Settings',
       saving: 'Saving...',
       settingsSaved: 'Settings saved successfully',

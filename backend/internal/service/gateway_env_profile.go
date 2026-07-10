@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"hash/fnv"
 	"net/http"
 )
@@ -75,6 +76,16 @@ func envOSProfileForSeed(seed string) envOSProfile {
 		pick -= e.weight
 	}
 	return envOSProfilesWeighted[0].profile
+}
+
+// envProfileDiversityEnabled 判断是否启用环境画像多样化。
+// 取"或"关系：部署级 config 项 或 运行时后台开关任一开启即生效——config 便于固化部署，
+// 后台开关便于运维在不重启的情况下灰度/回退（金丝雀验证）。
+func (s *GatewayService) envProfileDiversityEnabled(ctx context.Context) bool {
+	if s.cfg != nil && s.cfg.Gateway.Scheduling.EnvProfileDiversityEnabled {
+		return true
+	}
+	return s.settingService != nil && s.settingService.IsEnvProfileDiversityEnabled(ctx)
 }
 
 // applyAccountEnvProfileHeaders 用账号冻结画像覆盖 mimic 之后的 X-Stainless-OS/Arch。

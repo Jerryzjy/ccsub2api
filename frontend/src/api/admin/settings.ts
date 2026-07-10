@@ -623,6 +623,9 @@ export interface SystemSettings {
 
   // Allow user view error requests
   allow_user_view_error_requests: boolean;
+
+  // 环境画像多样化开关（防封）
+  env_profile_diversity_enabled: boolean;
 }
 
 export interface UpdateSettingsRequest {
@@ -863,6 +866,8 @@ export interface UpdateSettingsRequest {
   openai_fast_policy_settings?: OpenAIFastPolicySettings;
 
   allow_user_view_error_requests?: boolean;
+
+  env_profile_diversity_enabled?: boolean;
 }
 
 /**
