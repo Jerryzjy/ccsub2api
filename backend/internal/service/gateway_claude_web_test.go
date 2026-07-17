@@ -110,6 +110,7 @@ func TestClaudeWebAccountConnection(t *testing.T) {
 		"data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\n" +
 		"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
 	transport := &claudeWebTransportStub{responses: []*http.Response{
+		claudeWebTestResponse(http.StatusOK, `{"email_address":"web@example.com","memberships":[{"seat_tier":"pro"}]}`),
 		claudeWebTestResponse(http.StatusCreated, `{"uuid":"conv-test"}`),
 		claudeWebTestResponse(http.StatusOK, completionSSE),
 		claudeWebTestResponse(http.StatusNoContent, ""),
@@ -130,11 +131,13 @@ func TestClaudeWebAccountConnection(t *testing.T) {
 	require.Contains(t, recorder.Body.String(), `"type":"test_start"`)
 	require.Contains(t, recorder.Body.String(), `"type":"content","text":"ok"`)
 	require.Contains(t, recorder.Body.String(), `"type":"test_complete"`)
-	require.Len(t, transport.requests, 3)
+	require.Len(t, transport.requests, 4)
+	require.Equal(t, "/api/account", transport.requests[0].URL.Path)
 }
 
 func TestProbeClaudeWebSessionAccount(t *testing.T) {
 	transport := &claudeWebTransportStub{responses: []*http.Response{
+		claudeWebTestResponse(http.StatusOK, `{"email_address":"probe@example.com","memberships":[{"seat_tier":"pro"}]}`),
 		claudeWebTestResponse(http.StatusCreated, `{"uuid":"conv-probe"}`),
 		claudeWebTestResponse(http.StatusNoContent, ""),
 	}}
@@ -148,9 +151,11 @@ func TestProbeClaudeWebSessionAccount(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, "org-probe", organizationID)
-	require.Len(t, transport.requests, 2)
-	require.Equal(t, http.MethodPost, transport.requests[0].Method)
-	require.Equal(t, http.MethodDelete, transport.requests[1].Method)
+	require.Len(t, transport.requests, 3)
+	require.Equal(t, http.MethodGet, transport.requests[0].Method)
+	require.Equal(t, "/api/account", transport.requests[0].URL.Path)
+	require.Equal(t, http.MethodPost, transport.requests[1].Method)
+	require.Equal(t, http.MethodDelete, transport.requests[2].Method)
 }
 
 func TestForwardCountTokensClaudeWebSessionUsesLocalEstimate(t *testing.T) {

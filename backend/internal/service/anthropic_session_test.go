@@ -5,6 +5,7 @@ package service
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func mustParseAnthropicDigestRequest(t *testing.T, body string) *ParsedRequest {
@@ -228,8 +229,8 @@ func TestGenerateAnthropicDigestSessionKey(t *testing.T) {
 
 func TestAnthropicSessionTTL(t *testing.T) {
 	ttl := AnthropicSessionTTL()
-	if ttl.Seconds() != 300 {
-		t.Errorf("expected 300 seconds, got: %v", ttl.Seconds())
+	if ttl != time.Hour {
+		t.Errorf("expected 1 hour, got: %v", ttl)
 	}
 }
 
