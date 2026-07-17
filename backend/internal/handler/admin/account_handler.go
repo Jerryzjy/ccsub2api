@@ -616,6 +616,7 @@ func (h *AccountHandler) Create(c *gin.Context) {
 	// OpenAI APIKey 账号创建后异步探测上游 /v1/responses 能力。
 	// 探测失败不影响账号创建响应。
 	h.scheduleOpenAIResponsesProbe(createdAccount)
+	h.scheduleClaudeWebSessionProbe(createdAccount)
 	response.Success(c, result.Data)
 }
 
@@ -681,6 +682,7 @@ func (h *AccountHandler) Update(c *gin.Context) {
 	// 异步执行，探测失败不影响账号更新响应。
 	if len(req.Credentials) > 0 {
 		h.scheduleOpenAIResponsesProbe(account)
+		h.scheduleClaudeWebSessionProbe(account)
 	}
 
 	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
@@ -707,6 +709,21 @@ func (h *AccountHandler) scheduleOpenAIResponsesProbe(account *service.Account) 
 			}
 		}()
 		h.accountTestService.ProbeOpenAIAPIKeyResponsesSupport(context.Background(), accountID)
+	}()
+}
+
+func (h *AccountHandler) scheduleClaudeWebSessionProbe(account *service.Account) {
+	if account == nil || !account.IsClaudeWebSession() || h.accountTestService == nil {
+		return
+	}
+	accountID := account.ID
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("claude_web_session_probe_panic", "account_id", accountID, "recover", r)
+			}
+		}()
+		h.accountTestService.ProbeClaudeWebSession(context.Background(), accountID)
 	}()
 }
 

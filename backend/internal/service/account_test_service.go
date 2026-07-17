@@ -68,6 +68,7 @@ type AccountTestService struct {
 	claudeTokenProvider       *ClaudeTokenProvider
 	antigravityGatewayService *AntigravityGatewayService
 	httpUpstream              HTTPUpstream
+	claudeWebClient           *ClaudeWebClient
 	cfg                       *config.Config
 	tlsFPProfileService       *TLSFingerprintProfileService
 }
@@ -88,6 +89,7 @@ func NewAccountTestService(
 		claudeTokenProvider:       claudeTokenProvider,
 		antigravityGatewayService: antigravityGatewayService,
 		httpUpstream:              httpUpstream,
+		claudeWebClient:           NewClaudeWebClient(NewClaudeWebBrowserTransport()),
 		cfg:                       cfg,
 		tlsFPProfileService:       tlsFPProfileService,
 	}
@@ -204,6 +206,9 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	if testModelID == "" {
 		testModelID = claude.DefaultTestModel
 	}
+	if account.IsClaudeWebSession() {
+		return s.testClaudeWebAccountConnection(c, ctx, account, testModelID)
+	}
 
 	// API Key 账号测试连接时也需要应用通配符模型映射。
 	if account.Type == "apikey" {
@@ -318,6 +323,161 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 
 	// Process SSE stream
 	return s.processClaudeStream(c, resp.Body)
+}
+
+func (s *AccountTestService) testClaudeWebAccountConnection(c *gin.Context, ctx context.Context, account *Account, testModelID string) error {
+	if s.claudeWebClient == nil {
+		return s.sendErrorAndEnd(c, "Claude Web client is not configured")
+	}
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("X-Accel-Buffering", "no")
+	c.Writer.Flush()
+	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
+
+	payload, err := createTestPayload(testModelID)
+	if err != nil {
+		return s.sendErrorAndEnd(c, "Failed to create test payload")
+	}
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return s.sendErrorAndEnd(c, "Failed to encode test payload")
+	}
+	completion, err := BuildClaudeWebCompletion(payloadBytes, testModelID)
+	if err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
+	}
+	proxyURL := ""
+	if account.ProxyID != nil && account.Proxy != nil {
+		proxyURL = account.Proxy.URL()
+	}
+	organizationID, err := s.claudeWebClient.ResolveOrganization(ctx, account, proxyURL)
+	if err != nil {
+		return s.handleClaudeWebTestError(c, ctx, account, err)
+	}
+	conversationID, err := s.claudeWebClient.CreateConversation(ctx, account, proxyURL, organizationID)
+	if err != nil {
+		return s.handleClaudeWebTestError(c, ctx, account, err)
+	}
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		_ = s.claudeWebClient.DeleteConversation(cleanupCtx, account, proxyURL, organizationID, conversationID)
+	}()
+
+	response, err := s.claudeWebClient.Complete(ctx, account, proxyURL, organizationID, conversationID, completion)
+	if err != nil {
+		return s.handleClaudeWebTestError(c, ctx, account, err)
+	}
+	defer response.Body.Close()
+	return s.processClaudeWebTestStream(c, response.Body)
+}
+
+func (s *AccountTestService) processClaudeWebTestStream(c *gin.Context, body io.Reader) error {
+	err := scanClaudeWebSSE(body, func(event string, data []byte) error {
+		if event == "error" {
+			return errors.New("Claude Web stream error")
+		}
+		var payload claudeWebStreamPayload
+		if err := json.Unmarshal(data, &payload); err != nil {
+			return nil
+		}
+		if payload.Type == "error" {
+			return errors.New("Claude Web stream error")
+		}
+		text := payload.Delta.Text
+		if text == "" {
+			text = payload.Completion
+		}
+		if text != "" {
+			s.sendEvent(c, TestEvent{Type: "content", Text: text})
+		}
+		return nil
+	})
+	if err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
+	}
+	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+	return nil
+}
+
+func (s *AccountTestService) handleClaudeWebTestError(c *gin.Context, ctx context.Context, account *Account, err error) error {
+	message := "Claude Web request failed"
+	var upstreamErr *ClaudeWebHTTPError
+	if errors.As(err, &upstreamErr) {
+		kind := upstreamErr.Kind
+		if kind == "" {
+			kind = ClassifyClaudeWebResponse(upstreamErr.StatusCode, upstreamErr.Header, nil)
+		}
+		message = claudeWebPublicErrorMessage(kind)
+		if s.accountRepo != nil && (kind == ClaudeWebErrorExpired || kind == ClaudeWebErrorCloudflare) {
+			_ = s.accountRepo.SetError(ctx, account.ID, string(kind))
+			_ = s.accountRepo.SetSchedulable(ctx, account.ID, false)
+		}
+	}
+	return s.sendErrorAndEnd(c, message)
+}
+
+func (s *AccountTestService) probeClaudeWebSessionAccount(ctx context.Context, account *Account) (string, error) {
+	if s.claudeWebClient == nil {
+		return "", errors.New("Claude Web client is not configured")
+	}
+	if account == nil || !account.IsClaudeWebSession() {
+		return "", errors.New("invalid Claude Web account")
+	}
+	proxyURL := ""
+	if account.ProxyID != nil && account.Proxy != nil {
+		proxyURL = account.Proxy.URL()
+	}
+	organizationID, err := s.claudeWebClient.ResolveOrganization(ctx, account, proxyURL)
+	if err != nil {
+		return "", err
+	}
+	conversationID, err := s.claudeWebClient.CreateConversation(ctx, account, proxyURL, organizationID)
+	if err != nil {
+		return "", err
+	}
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	if err := s.claudeWebClient.DeleteConversation(cleanupCtx, account, proxyURL, organizationID, conversationID); err != nil {
+		return "", err
+	}
+	return organizationID, nil
+}
+
+// ProbeClaudeWebSession validates a saved Web Session account after create,
+// update, or bulk import and synchronizes its schedulable state.
+func (s *AccountTestService) ProbeClaudeWebSession(ctx context.Context, accountID int64) {
+	if s == nil || s.accountRepo == nil {
+		return
+	}
+	account, err := s.accountRepo.GetByID(ctx, accountID)
+	if err != nil || account == nil || !account.IsClaudeWebSession() {
+		return
+	}
+	organizationID, err := s.probeClaudeWebSessionAccount(ctx, account)
+	if err != nil {
+		reason := string(ClaudeWebErrorUpstream)
+		var upstreamErr *ClaudeWebHTTPError
+		if errors.As(err, &upstreamErr) {
+			kind := upstreamErr.Kind
+			if kind == "" {
+				kind = ClassifyClaudeWebResponse(upstreamErr.StatusCode, upstreamErr.Header, nil)
+			}
+			reason = string(kind)
+		}
+		_ = s.accountRepo.SetError(ctx, account.ID, reason)
+		_ = s.accountRepo.SetSchedulable(ctx, account.ID, false)
+		return
+	}
+	if account.GetCredential(ClaudeWebCredentialOrganizationID) != organizationID {
+		credentials := cloneCredentials(account.Credentials)
+		credentials[ClaudeWebCredentialOrganizationID] = organizationID
+		_ = s.accountRepo.UpdateCredentials(ctx, account.ID, credentials)
+	}
+	_ = s.accountRepo.ClearError(ctx, account.ID)
+	_ = s.accountRepo.SetSchedulable(ctx, account.ID, true)
 }
 
 func (s *AccountTestService) testClaudeVertexServiceAccountConnection(c *gin.Context, ctx context.Context, account *Account, testModelID string) error {

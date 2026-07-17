@@ -635,6 +635,7 @@ type GatewayService struct {
 	billingCacheService   *BillingCacheService
 	identityService       *IdentityService
 	httpUpstream          HTTPUpstream
+	claudeWebClient       *ClaudeWebClient
 	deferredService       *DeferredService
 	concurrencyService    *ConcurrencyService
 	claudeTokenProvider   *ClaudeTokenProvider
@@ -708,6 +709,7 @@ func NewGatewayService(
 		billingCacheService:   billingCacheService,
 		identityService:       identityService,
 		httpUpstream:          httpUpstream,
+		claudeWebClient:       NewClaudeWebClient(NewClaudeWebBrowserTransport()),
 		deferredService:       deferredService,
 		claudeTokenProvider:   claudeTokenProvider,
 		sessionLimitCache:     sessionLimitCache,
@@ -5062,6 +5064,9 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	// Web Search 模拟：纯 web_search 请求时，直接调用搜索 API 构造响应
 	if account != nil && s.shouldEmulateWebSearch(ctx, account, parsed.GroupID, parsed.Body.Bytes()) {
 		return s.handleWebSearchEmulation(ctx, c, account, parsed)
+	}
+	if account != nil && account.IsClaudeWebSession() {
+		return s.forwardClaudeWebSession(ctx, c, account, parsed, startTime)
 	}
 
 	if account != nil && account.IsAnthropicAPIKeyPassthroughEnabled() {
@@ -10190,6 +10195,9 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	if parsed == nil {
 		s.countTokensError(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
 		return fmt.Errorf("parse request: empty request")
+	}
+	if account != nil && account.IsClaudeWebSession() {
+		return s.forwardClaudeWebCountTokens(c, parsed)
 	}
 
 	if account != nil && account.IsAnthropicAPIKeyPassthroughEnabled() {
