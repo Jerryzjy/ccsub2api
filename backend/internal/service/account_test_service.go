@@ -411,7 +411,7 @@ func (s *AccountTestService) handleClaudeWebTestError(c *gin.Context, ctx contex
 			kind = ClassifyClaudeWebResponse(upstreamErr.StatusCode, upstreamErr.Header, nil)
 		}
 		message = claudeWebPublicErrorMessage(kind)
-		if s.accountRepo != nil && (kind == ClaudeWebErrorExpired || kind == ClaudeWebErrorCloudflare) {
+		if s.accountRepo != nil && (kind == ClaudeWebErrorExpired || kind == ClaudeWebErrorCloudflare || kind == ClaudeWebErrorRegionBlocked) {
 			_ = s.accountRepo.SetError(ctx, account.ID, string(kind))
 			_ = s.accountRepo.SetSchedulable(ctx, account.ID, false)
 		}

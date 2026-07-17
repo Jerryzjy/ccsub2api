@@ -20,6 +20,12 @@ func TestClassifyClaudeWebResponse(t *testing.T) {
 		[]byte("<html>challenge</html>"),
 	))
 	require.Equal(t, ClaudeWebErrorRateLimited, ClassifyClaudeWebResponse(http.StatusTooManyRequests, nil, nil))
+	require.Equal(t, ClaudeWebErrorRegionBlocked, ClassifyClaudeWebResponse(
+		http.StatusFound,
+		http.Header{"Location": []string{"https://www.anthropic.com/app-unavailable-in-region"}},
+		nil,
+	))
+	require.Equal(t, "Claude Web is unavailable from the account proxy region", claudeWebPublicErrorMessage(ClaudeWebErrorRegionBlocked))
 	require.Equal(t, ClaudeWebErrorUpstream, ClassifyClaudeWebResponse(http.StatusBadGateway, nil, nil))
 }
 

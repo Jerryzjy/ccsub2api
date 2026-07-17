@@ -18,14 +18,20 @@ import (
 type ClaudeWebErrorKind string
 
 const (
-	ClaudeWebErrorExpired     ClaudeWebErrorKind = "web_session_expired"
-	ClaudeWebErrorCloudflare  ClaudeWebErrorKind = "web_session_cloudflare"
-	ClaudeWebErrorRateLimited ClaudeWebErrorKind = "web_session_rate_limited"
-	ClaudeWebErrorUpstream    ClaudeWebErrorKind = "web_session_upstream"
+	ClaudeWebErrorExpired       ClaudeWebErrorKind = "web_session_expired"
+	ClaudeWebErrorCloudflare    ClaudeWebErrorKind = "web_session_cloudflare"
+	ClaudeWebErrorRegionBlocked ClaudeWebErrorKind = "web_session_region_blocked"
+	ClaudeWebErrorRateLimited   ClaudeWebErrorKind = "web_session_rate_limited"
+	ClaudeWebErrorUpstream      ClaudeWebErrorKind = "web_session_upstream"
 )
 
 func ClassifyClaudeWebResponse(status int, header http.Header, body []byte) ClaudeWebErrorKind {
 	switch status {
+	case http.StatusMovedPermanently, http.StatusFound, http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
+		if strings.Contains(strings.ToLower(header.Get("Location")), "app-unavailable-in-region") {
+			return ClaudeWebErrorRegionBlocked
+		}
+		return ClaudeWebErrorUpstream
 	case http.StatusUnauthorized:
 		return ClaudeWebErrorExpired
 	case http.StatusForbidden:
@@ -184,6 +190,8 @@ func claudeWebPublicErrorMessage(kind ClaudeWebErrorKind) string {
 		return "Claude Web session expired; update the account Cookie"
 	case ClaudeWebErrorCloudflare:
 		return "Claude Web browser verification failed; check the account proxy and Cookie"
+	case ClaudeWebErrorRegionBlocked:
+		return "Claude Web is unavailable from the account proxy region"
 	case ClaudeWebErrorRateLimited:
 		return "Claude Web account is rate limited"
 	default:

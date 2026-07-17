@@ -120,7 +120,7 @@ func TestBuildClaudeWebCompletion(t *testing.T) {
 	require.NotEmpty(t, got.TurnMessageUUIDs.HumanMessageUUID)
 	require.NotEmpty(t, got.TurnMessageUUIDs.AssistantMessageUUID)
 	require.Equal(t, "Asia/Shanghai", got.Timezone)
-	require.Equal(t, "zh-CN", got.Locale)
+	require.Equal(t, "en-US", got.Locale)
 	require.Equal(t, "messages", got.RenderingMode)
 	require.Empty(t, got.Attachments)
 	require.Empty(t, got.Files)

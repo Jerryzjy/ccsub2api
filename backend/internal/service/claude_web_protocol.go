@@ -162,7 +162,7 @@ func BuildClaudeWebCompletion(body []byte, model string) (ClaudeWebCompletionReq
 		Prompt:            prompt,
 		ParentMessageUUID: uuid.NewString(),
 		Timezone:          "Asia/Shanghai",
-		Locale:            "zh-CN",
+		Locale:            "en-US",
 		Model:             model,
 		ThinkingMode:      "auto",
 		TurnMessageUUIDs: ClaudeWebTurnMessageUUIDs{
