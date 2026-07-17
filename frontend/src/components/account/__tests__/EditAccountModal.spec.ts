@@ -167,6 +167,32 @@ function buildVertexAccount() {
   } as any
 }
 
+function buildClaudeWebAccount() {
+  return {
+    id: 3,
+    name: 'Claude Web',
+    notes: '',
+    platform: 'anthropic',
+    type: 'web_session',
+    credentials: {
+      organization_id: 'org-test'
+    },
+    credentials_status: {
+      has_cookie: true,
+      has_session_key: true
+    },
+    extra: {},
+    proxy_id: null,
+    concurrency: 1,
+    priority: 1,
+    rate_multiplier: 1,
+    status: 'active',
+    group_ids: [],
+    expires_at: null,
+    auto_pause_on_expired: false
+  } as any
+}
+
 function mountModal(account = buildAccount()) {
   return mount(EditAccountModal, {
     props: {
@@ -189,6 +215,40 @@ function mountModal(account = buildAccount()) {
 }
 
 describe('EditAccountModal', () => {
+  it('keeps redacted Claude Web credentials when replacement fields are empty', async () => {
+    const account = buildClaudeWebAccount()
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).toEqual({
+      organization_id: 'org-test'
+    })
+  })
+
+  it('submits a replacement Claude Web sessionKey without exposing the old value', async () => {
+    const account = buildClaudeWebAccount()
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    await wrapper.get('[data-testid="edit-claude-web-session-key"]').setValue('sk-replacement')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).toEqual({
+      organization_id: 'org-test',
+      session_key: 'sk-replacement'
+    })
+  })
+
   it('reopening the same account rehydrates the OpenAI whitelist from props', async () => {
     const account = buildAccount()
     updateAccountMock.mockReset()

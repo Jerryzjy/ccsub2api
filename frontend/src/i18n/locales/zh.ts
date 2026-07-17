@@ -3557,6 +3557,21 @@ export default {
       apiKeyRequired: 'API Key *',
       apiKeyPlaceholder: 'sk-ant-api03-...',
       apiKeyHint: '您的 Claude Console API Key',
+      claudeWeb: {
+        label: 'Claude Web',
+        desc: 'Cookie / sessionKey',
+        cookieFile: '浏览器导出的 Cookie 文件',
+        selectCookieFile: '选择 Cookie 文件',
+        cookieFileHint: '支持 Netscape 格式的 .txt 文件；已选择的文件优先于下方 Cookie Header。',
+        cookieFileEmpty: '选择的 Cookie 文件为空',
+        cookieHeader: 'Cookie Header',
+        cookieHeaderPlaceholder: 'sessionKey=...; lastActiveOrg=...',
+        sessionKey: 'sessionKey 备用值',
+        sessionKeyPlaceholder: 'sk-ant-sid...',
+        sessionKeyHint: '完整 Cookie 已包含 sessionKey 时可留空。',
+        editHint: '全部留空会保留当前 Cookie 和 sessionKey。',
+        credentialsRequired: '请选择 Cookie 文件、填写 Cookie Header，或提供 sessionKey'
+      },
       // OpenAI specific hints
       openai: {
         baseUrlHint: '留空使用官方 OpenAI API',

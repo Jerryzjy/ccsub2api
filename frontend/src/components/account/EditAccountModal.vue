@@ -26,6 +26,53 @@
         <p class="input-hint">{{ t('admin.accounts.notesHint') }}</p>
       </div>
 
+      <div v-if="account.type === 'web_session'" class="space-y-4">
+        <div>
+          <label class="input-label">{{ t('admin.accounts.claudeWeb.cookieFile') }}</label>
+          <input
+            ref="editClaudeWebCookieFileInput"
+            type="file"
+            accept=".txt,text/plain"
+            class="hidden"
+            @change="handleEditClaudeWebCookieFile"
+          />
+          <button
+            type="button"
+            class="btn btn-secondary inline-flex items-center gap-2"
+            @click="editClaudeWebCookieFileInput?.click()"
+          >
+            <Icon name="upload" size="sm" />
+            {{ t('admin.accounts.claudeWeb.selectCookieFile') }}
+          </button>
+          <span v-if="editClaudeWebCookieFileName" class="ml-3 text-sm text-gray-600 dark:text-gray-300">
+            {{ editClaudeWebCookieFileName }}
+          </span>
+        </div>
+        <div>
+          <label class="input-label">{{ t('admin.accounts.claudeWeb.cookieHeader') }}</label>
+          <input
+            v-model="editClaudeWebCookieHeader"
+            data-testid="edit-claude-web-cookie-header"
+            type="password"
+            autocomplete="new-password"
+            class="input font-mono"
+            :placeholder="t('admin.accounts.leaveEmptyToKeep')"
+          />
+        </div>
+        <div>
+          <label class="input-label">{{ t('admin.accounts.claudeWeb.sessionKey') }}</label>
+          <input
+            v-model="editClaudeWebSessionKey"
+            data-testid="edit-claude-web-session-key"
+            type="password"
+            autocomplete="new-password"
+            class="input font-mono"
+            :placeholder="t('admin.accounts.leaveEmptyToKeep')"
+          />
+        </div>
+        <p class="input-hint">{{ t('admin.accounts.claudeWeb.editHint') }}</p>
+      </div>
+
       <!-- API Key fields (only for apikey type) -->
       <div v-if="account.type === 'apikey'" class="space-y-4">
         <div>
@@ -2685,7 +2732,10 @@ import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
-import { applyInterceptWarmup } from '@/components/account/credentialsBuilder'
+import {
+  applyInterceptWarmup,
+  buildClaudeWebCredentials
+} from '@/components/account/credentialsBuilder'
 import { formatDateTime, formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
 import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
@@ -2751,6 +2801,11 @@ interface TempUnschedRuleForm {
 const submitting = ref(false)
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
+const editClaudeWebCookieFileInput = ref<HTMLInputElement | null>(null)
+const editClaudeWebCookieFile = ref('')
+const editClaudeWebCookieFileName = ref('')
+const editClaudeWebCookieHeader = ref('')
+const editClaudeWebSessionKey = ref('')
 // Bedrock credentials
 const editBedrockAccessKeyId = ref('')
 const editBedrockSecretAccessKey = ref('')
@@ -3239,6 +3294,10 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   editVertexProjectId.value = ''
   editVertexClientEmail.value = ''
   editVertexLocation.value = 'us-central1'
+  editClaudeWebCookieFile.value = ''
+  editClaudeWebCookieFileName.value = ''
+  editClaudeWebCookieHeader.value = ''
+  editClaudeWebSessionKey.value = ''
 
   // Load mixed scheduling setting (only for antigravity accounts)
   mixedScheduling.value = false
@@ -3998,6 +4057,23 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
   }
 }
 
+const handleEditClaudeWebCookieFile = async (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  try {
+    const content = await file.text()
+    if (!content.trim()) {
+      appStore.showError(t('admin.accounts.claudeWeb.cookieFileEmpty'))
+      return
+    }
+    editClaudeWebCookieFile.value = content
+    editClaudeWebCookieFileName.value = file.name
+  } finally {
+    input.value = ''
+  }
+}
+
 const handleSubmit = async () => {
   if (!props.account) return
   const accountID = props.account.id
@@ -4023,8 +4099,24 @@ const handleSubmit = async () => {
     }
     updatePayload.auto_pause_on_expired = autoPauseOnExpired.value
 
+    if (props.account.type === 'web_session') {
+      const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
+      const newCredentials: Record<string, unknown> = { ...currentCredentials }
+      const hasReplacement = Boolean(
+        editClaudeWebCookieFile.value.trim() ||
+        editClaudeWebCookieHeader.value.trim() ||
+        editClaudeWebSessionKey.value.trim()
+      )
+      if (hasReplacement) {
+        Object.assign(newCredentials, buildClaudeWebCredentials({
+          cookieFile: editClaudeWebCookieFile.value,
+          cookieHeader: editClaudeWebCookieHeader.value,
+          sessionKey: editClaudeWebSessionKey.value
+        }))
+      }
+      updatePayload.credentials = newCredentials
     // For apikey type, handle credentials update
-    if (props.account.type === 'apikey') {
+    } else if (props.account.type === 'apikey') {
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
       const newBaseUrl = editBaseUrl.value.trim() || defaultBaseUrl.value
       const shouldApplyModelMapping = !(props.account.platform === 'openai' && openaiPassthroughEnabled.value)

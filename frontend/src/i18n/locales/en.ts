@@ -3398,6 +3398,21 @@ export default {
       apiKeyRequired: 'API Key *',
       apiKeyPlaceholder: 'sk-ant-api03-...',
       apiKeyHint: 'Your Claude Console API Key',
+      claudeWeb: {
+        label: 'Claude Web',
+        desc: 'Cookie / sessionKey',
+        cookieFile: 'Exported Cookie file',
+        selectCookieFile: 'Select Cookie file',
+        cookieFileHint: 'Supports Netscape-format .txt exports. A selected file takes priority over the Cookie Header field.',
+        cookieFileEmpty: 'The selected Cookie file is empty',
+        cookieHeader: 'Cookie Header',
+        cookieHeaderPlaceholder: 'sessionKey=...; lastActiveOrg=...',
+        sessionKey: 'sessionKey fallback',
+        sessionKeyPlaceholder: 'sk-ant-sid...',
+        sessionKeyHint: 'Optional when the full Cookie already contains sessionKey.',
+        editHint: 'Leave all fields empty to keep the current Cookie and sessionKey.',
+        credentialsRequired: 'Select a Cookie file, enter a Cookie Header, or provide sessionKey'
+      },
       // OpenAI specific hints
       openai: {
         baseUrlHint: 'Leave default for official OpenAI API',

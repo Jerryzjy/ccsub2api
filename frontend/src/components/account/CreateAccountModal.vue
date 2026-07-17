@@ -153,7 +153,7 @@
       <!-- Account Type Selection (Anthropic) -->
       <div v-if="form.platform === 'anthropic'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
-        <div class="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4" data-tour="account-form-type">
+        <div class="mt-2 grid grid-cols-2 gap-3 lg:grid-cols-5" data-tour="account-form-type">
           <button
             type="button"
             @click="accountCategory = 'oauth-based'"
@@ -180,6 +180,36 @@
               }}</span>
               <span class="text-xs text-gray-500 dark:text-gray-400">{{
                 t('admin.accounts.oauthSetupToken')
+              }}</span>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            @click="accountCategory = 'web_session'"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              accountCategory === 'web_session'
+                ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
+                : 'border-gray-200 hover:border-emerald-300 dark:border-dark-600 dark:hover:border-emerald-700'
+            ]"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                accountCategory === 'web_session'
+                  ? 'bg-emerald-500 text-white'
+                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <Icon name="globe" size="sm" />
+            </div>
+            <div class="min-w-0">
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{
+                t('admin.accounts.claudeWeb.label')
+              }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{
+                t('admin.accounts.claudeWeb.desc')
               }}</span>
             </div>
           </button>
@@ -277,6 +307,57 @@
           class="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:border-sky-800/40 dark:bg-sky-900/20 dark:text-sky-200"
         >
           <p>{{ t('admin.accounts.vertexAnthropicHint') }}</p>
+        </div>
+      </div>
+
+      <div
+        v-if="form.platform === 'anthropic' && accountCategory === 'web_session'"
+        class="space-y-4 rounded-lg border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-800/50 dark:bg-emerald-900/10"
+      >
+        <div>
+          <label class="input-label">{{ t('admin.accounts.claudeWeb.cookieFile') }}</label>
+          <input
+            ref="claudeWebCookieFileInput"
+            type="file"
+            accept=".txt,text/plain"
+            class="hidden"
+            @change="handleClaudeWebCookieFile"
+          />
+          <button
+            type="button"
+            class="btn btn-secondary inline-flex items-center gap-2"
+            @click="claudeWebCookieFileInput?.click()"
+          >
+            <Icon name="upload" size="sm" />
+            {{ t('admin.accounts.claudeWeb.selectCookieFile') }}
+          </button>
+          <span v-if="claudeWebCookieFileName" class="ml-3 text-sm text-gray-600 dark:text-gray-300">
+            {{ claudeWebCookieFileName }}
+          </span>
+          <p class="input-hint">{{ t('admin.accounts.claudeWeb.cookieFileHint') }}</p>
+        </div>
+
+        <div>
+          <label class="input-label">{{ t('admin.accounts.claudeWeb.cookieHeader') }}</label>
+          <input
+            v-model="claudeWebCookieHeader"
+            type="password"
+            autocomplete="off"
+            class="input font-mono"
+            :placeholder="t('admin.accounts.claudeWeb.cookieHeaderPlaceholder')"
+          />
+        </div>
+
+        <div>
+          <label class="input-label">{{ t('admin.accounts.claudeWeb.sessionKey') }}</label>
+          <input
+            v-model="claudeWebSessionKey"
+            type="password"
+            autocomplete="off"
+            class="input font-mono"
+            :placeholder="t('admin.accounts.claudeWeb.sessionKeyPlaceholder')"
+          />
+          <p class="input-hint">{{ t('admin.accounts.claudeWeb.sessionKeyHint') }}</p>
         </div>
       </div>
 
@@ -3510,7 +3591,10 @@ import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
-import { applyInterceptWarmup } from '@/components/account/credentialsBuilder'
+import {
+  applyInterceptWarmup,
+  buildClaudeWebCredentials
+} from '@/components/account/credentialsBuilder'
 import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
 import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
@@ -3629,10 +3713,15 @@ interface TempUnschedRuleForm {
 // State
 const step = ref(1)
 const submitting = ref(false)
-const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_account'>('oauth-based') // UI selection for account category
+const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_account' | 'web_session'>('oauth-based') // UI selection for account category
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
+const claudeWebCookieFileInput = ref<HTMLInputElement | null>(null)
+const claudeWebCookieFile = ref('')
+const claudeWebCookieFileName = ref('')
+const claudeWebCookieHeader = ref('')
+const claudeWebSessionKey = ref('')
 
 const syncPreviewCredentials = computed(() => {
   if (!apiKeyValue.value) return undefined
@@ -4060,6 +4149,10 @@ watch(
       form.type = 'bedrock' as AccountType
       return
     }
+    if (form.platform === 'anthropic' && category === 'web_session') {
+      form.type = 'web_session' as AccountType
+      return
+    }
     if ((form.platform === 'gemini' || form.platform === 'anthropic') && category === 'service_account') {
       form.type = 'service_account' as AccountType
     } else if (category === 'oauth-based') {
@@ -4104,6 +4197,9 @@ watch(
       accountCategory.value = 'oauth-based'
     }
     if (newPlatform !== 'anthropic' && accountCategory.value === 'bedrock') {
+      accountCategory.value = 'oauth-based'
+    }
+    if (newPlatform !== 'anthropic' && accountCategory.value === 'web_session') {
       accountCategory.value = 'oauth-based'
     }
     // Reset Bedrock fields when switching platforms
@@ -4496,6 +4592,10 @@ const resetForm = () => {
   addMethod.value = 'oauth'
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
+  claudeWebCookieFile.value = ''
+  claudeWebCookieFileName.value = ''
+  claudeWebCookieHeader.value = ''
+  claudeWebSessionKey.value = ''
   editQuotaLimit.value = null
   editQuotaDailyLimit.value = null
   editQuotaWeeklyLimit.value = null
@@ -4759,6 +4859,23 @@ const handleVertexServiceAccountDrop = async (event: DragEvent) => {
   applyVertexServiceAccountJson(await file.text())
 }
 
+const handleClaudeWebCookieFile = async (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  try {
+    const content = await file.text()
+    if (!content.trim()) {
+      appStore.showError(t('admin.accounts.claudeWeb.cookieFileEmpty'))
+      return
+    }
+    claudeWebCookieFile.value = content
+    claudeWebCookieFileName.value = file.name
+  } finally {
+    input.value = ''
+  }
+}
+
 const handleSubmit = async () => {
   // For OAuth-based type, handle OAuth flow (goes to step 2)
   if (isOAuthFlow.value) {
@@ -4773,6 +4890,26 @@ const handleSubmit = async () => {
       return
     }
     step.value = 2
+    return
+  }
+
+  if (form.platform === 'anthropic' && accountCategory.value === 'web_session') {
+    if (!form.name.trim()) {
+      appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
+      return
+    }
+    let credentials: Record<string, string>
+    try {
+      credentials = buildClaudeWebCredentials({
+        cookieFile: claudeWebCookieFile.value,
+        cookieHeader: claudeWebCookieHeader.value,
+        sessionKey: claudeWebSessionKey.value
+      })
+    } catch {
+      appStore.showError(t('admin.accounts.claudeWeb.credentialsRequired'))
+      return
+    }
+    await createAccountAndFinish('anthropic', 'web_session', credentials)
     return
   }
 
