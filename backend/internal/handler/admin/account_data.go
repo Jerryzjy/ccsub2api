@@ -402,6 +402,17 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 		}
 
 		enrichCredentialsFromIDToken(&item)
+		normalizedExtra, normalizeErr := normalizeClaudeWebAccountExtra(item.Platform, item.Type, item.Extra, true)
+		if normalizeErr != nil {
+			result.AccountFailed++
+			result.Errors = append(result.Errors, DataImportError{
+				Kind:    "account",
+				Name:    item.Name,
+				Message: normalizeErr.Error(),
+			})
+			continue
+		}
+		item.Extra = normalizedExtra
 
 		accountInput := &service.CreateAccountInput{
 			Name:                 item.Name,

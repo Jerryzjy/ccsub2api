@@ -13,6 +13,7 @@ const (
 	ClaudeWebCredentialCookie         = "cookie"
 	ClaudeWebCredentialSessionKey     = "session_key"
 	ClaudeWebCredentialOrganizationID = "organization_id"
+	ClaudeWebCredentialEmailAddress   = "email_address"
 )
 
 // ClaudeWebCookie is the normalized subset needed by the Claude Web transport.

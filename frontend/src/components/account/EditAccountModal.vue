@@ -71,7 +71,15 @@
           />
         </div>
         <p class="input-hint">{{ t('admin.accounts.claudeWeb.editHint') }}</p>
+        <p v-if="account.credentials?.email_address" class="text-sm text-emerald-700 dark:text-emerald-300">
+          {{ t('admin.accounts.claudeWeb.syncedEmail') }}: {{ account.credentials.email_address }}
+        </p>
       </div>
+
+      <ClaudeWebSafetyPanel
+        v-if="account.type === 'web_session'"
+        v-model="claudeWebSafety"
+      />
 
       <!-- API Key fields (only for apikey type) -->
       <div v-if="account.type === 'apikey'" class="space-y-4">
@@ -2736,6 +2744,13 @@ import {
   applyInterceptWarmup,
   buildClaudeWebCredentials
 } from '@/components/account/credentialsBuilder'
+import ClaudeWebSafetyPanel from '@/components/account/ClaudeWebSafetyPanel.vue'
+import {
+  CLAUDE_WEB_SAFETY_CONFIG_KEYS,
+  createClaudeWebSafetyState,
+  hydrateClaudeWebSafety,
+  serializeClaudeWebSafety
+} from '@/components/account/claudeWebSafety'
 import { formatDateTime, formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
 import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
@@ -2806,6 +2821,7 @@ const editClaudeWebCookieFile = ref('')
 const editClaudeWebCookieFileName = ref('')
 const editClaudeWebCookieHeader = ref('')
 const editClaudeWebSessionKey = ref('')
+const claudeWebSafety = ref(createClaudeWebSafetyState())
 // Bedrock credentials
 const editBedrockAccessKeyId = ref('')
 const editBedrockSecretAccessKey = ref('')
@@ -3302,14 +3318,17 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   // Load mixed scheduling setting (only for antigravity accounts)
   mixedScheduling.value = false
   allowOverages.value = false
-	const extra = newAccount.extra as Record<string, unknown> | undefined
-	claudeTier.value = (extra?.claude_tier as string) || ''
-	mixedScheduling.value = extra?.mixed_scheduling === true
-	allowOverages.value = extra?.allow_overages === true
-	autoPause5hThreshold.value = typeof extra?.auto_pause_5h_threshold === 'number' ? extra.auto_pause_5h_threshold * 100 : null
-	autoPause7dThreshold.value = typeof extra?.auto_pause_7d_threshold === 'number' ? extra.auto_pause_7d_threshold * 100 : null
-	autoPause5hDisabled.value = extra?.auto_pause_5h_disabled === true
-	autoPause7dDisabled.value = extra?.auto_pause_7d_disabled === true
+  const extra = newAccount.extra as Record<string, unknown> | undefined
+  claudeTier.value = (extra?.claude_tier as string) || ''
+  claudeWebSafety.value = newAccount.type === 'web_session'
+    ? hydrateClaudeWebSafety(extra)
+    : createClaudeWebSafetyState()
+  mixedScheduling.value = extra?.mixed_scheduling === true
+  allowOverages.value = extra?.allow_overages === true
+  autoPause5hThreshold.value = typeof extra?.auto_pause_5h_threshold === 'number' ? extra.auto_pause_5h_threshold * 100 : null
+  autoPause7dThreshold.value = typeof extra?.auto_pause_7d_threshold === 'number' ? extra.auto_pause_7d_threshold * 100 : null
+  autoPause5hDisabled.value = extra?.auto_pause_5h_disabled === true
+  autoPause7dDisabled.value = extra?.auto_pause_7d_disabled === true
 
   // Load OpenAI passthrough toggle (OpenAI OAuth/API Key)
   openaiPassthroughEnabled.value = false
@@ -4115,6 +4134,14 @@ const handleSubmit = async () => {
         }))
       }
       updatePayload.credentials = newCredentials
+
+      const currentExtra = (props.account.extra as Record<string, unknown>) || {}
+      const newExtra: Record<string, unknown> = { ...currentExtra }
+      for (const key of CLAUDE_WEB_SAFETY_CONFIG_KEYS) {
+        delete newExtra[key]
+      }
+      Object.assign(newExtra, serializeClaudeWebSafety(claudeWebSafety.value))
+      updatePayload.extra = newExtra
     // For apikey type, handle credentials update
     } else if (props.account.type === 'apikey') {
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}

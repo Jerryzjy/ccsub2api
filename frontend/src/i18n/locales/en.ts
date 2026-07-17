@@ -3411,7 +3411,16 @@ export default {
         sessionKeyPlaceholder: 'sk-ant-sid...',
         sessionKeyHint: 'Optional when the full Cookie already contains sessionKey.',
         editHint: 'Leave all fields empty to keep the current Cookie and sessionKey.',
-        credentialsRequired: 'Select a Cookie file, enter a Cookie Header, or provide sessionKey'
+        credentialsRequired: 'Select a Cookie file, enter a Cookie Header, or provide sessionKey',
+        syncedEmail: 'Synchronized email',
+        autoDetectTier: 'Auto-detect (use Pro if unknown)',
+        applySafetyPreset: 'Fill missing safety defaults',
+        tierPresetHint: 'Connection tests synchronize the subscription tier and email. Manual tiers are preserved and presets only fill missing values.',
+        localQuotaLabel: 'Local cost quota',
+        totalQuota: 'Total quota (USD)',
+        dailyQuota: 'Daily quota (USD)',
+        weeklyQuota: 'Weekly quota (USD)',
+        localQuotaHint: 'This is a local API-equivalent cost guardrail, not the subscription balance displayed by Claude Web.'
       },
       // OpenAI specific hints
       openai: {

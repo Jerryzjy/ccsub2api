@@ -2728,7 +2728,7 @@ func (s *GatewayService) withWindowCostPrefetch(ctx context.Context, accounts []
 	accountIDs := make([]int64, 0, len(accounts))
 	for i := range accounts {
 		account := &accounts[i]
-		if account == nil || !account.IsAnthropicOAuthOrSetupToken() {
+		if account == nil || !account.SupportsSubscriptionSafetyLimits() {
 			continue
 		}
 		if account.GetWindowCostLimit() <= 0 {
@@ -2825,7 +2825,7 @@ func (s *GatewayService) withWindowCostPrefetch(ctx context.Context, accounts []
 // isAccountSchedulableForQuota 检查账号是否在配额限制内
 // 适用于配置了 quota_limit 的 apikey 和 bedrock 类型账号
 func (s *GatewayService) isAccountSchedulableForQuota(account *Account) bool {
-	if !account.IsAPIKeyOrBedrock() {
+	if !account.SupportsLocalQuotaControl() {
 		return true
 	}
 	return !account.IsQuotaExceeded()
@@ -2836,7 +2836,7 @@ func (s *GatewayService) isAccountSchedulableForQuota(account *Account) bool {
 // 返回 true 表示可调度，false 表示不可调度
 func (s *GatewayService) isAccountSchedulableForWindowCost(ctx context.Context, account *Account, isSticky bool) bool {
 	// 只检查 Anthropic OAuth/SetupToken 账号
-	if !account.IsAnthropicOAuthOrSetupToken() {
+	if !account.SupportsSubscriptionSafetyLimits() {
 		return true
 	}
 
@@ -2944,7 +2944,7 @@ func (s *GatewayService) withRPMPrefetch(ctx context.Context, accounts []Account
 	var rpmIDs []int64
 	var tpmIDs []int64
 	for i := range accounts {
-		if accounts[i].IsAnthropicOAuthOrSetupToken() && accounts[i].GetBaseRPM() > 0 {
+		if accounts[i].SupportsSubscriptionSafetyLimits() && accounts[i].GetBaseRPM() > 0 {
 			rpmIDs = append(rpmIDs, accounts[i].ID)
 		}
 		// TPM 适用于任意配置了 base_tpm 的账号（含 apikey 类型）
@@ -2976,7 +2976,7 @@ func (s *GatewayService) isAccountSchedulableForRPM(ctx context.Context, account
 	if !s.isAccountSchedulableForTPM(ctx, account, isSticky) {
 		return false
 	}
-	if !account.IsAnthropicOAuthOrSetupToken() {
+	if !account.SupportsSubscriptionSafetyLimits() {
 		return true
 	}
 	baseRPM := account.GetBaseRPM()
@@ -3067,7 +3067,7 @@ func (s *GatewayService) AddAccountTPM(ctx context.Context, accountID int64, tok
 // 返回 true 表示允许（在限制内或会话已存在），false 表示拒绝（超出限制且是新会话）
 func (s *GatewayService) checkAndRegisterSession(ctx context.Context, account *Account, sessionID string) bool {
 	// 只检查 Anthropic OAuth/SetupToken 账号
-	if !account.IsAnthropicOAuthOrSetupToken() {
+	if !account.SupportsSubscriptionSafetyLimits() {
 		return true
 	}
 
@@ -9230,7 +9230,7 @@ func (p *postUsageBillingParams) shouldUpdateRateLimits() bool {
 }
 
 func (p *postUsageBillingParams) shouldUpdateAccountQuota() bool {
-	return p.Cost.TotalCost > 0 && p.Account.IsAPIKeyOrBedrock() && p.Account.HasAnyQuotaLimit()
+	return p.Cost.TotalCost > 0 && p.Account.SupportsLocalQuotaControl() && p.Account.HasAnyQuotaLimit()
 }
 
 // postUsageBilling is the legacy fallback billing path used when the unified
@@ -9533,11 +9533,11 @@ func notifyAccountQuota(p *postUsageBillingParams, deps *billingDeps, result *Us
 			slog.Error("panic in notifyAccountQuota", "recover", r)
 		}
 	}()
-	if p.Cost.TotalCost <= 0 || p.Account == nil || !p.Account.IsAPIKeyOrBedrock() || deps.balanceNotifyService == nil {
+	if p.Cost.TotalCost <= 0 || p.Account == nil || !p.Account.SupportsLocalQuotaControl() || deps.balanceNotifyService == nil {
 		slog.Debug("notifyAccountQuota: skipped",
 			"total_cost", p.Cost.TotalCost,
 			"account_nil", p.Account == nil,
-			"is_apikey_or_bedrock", p.Account != nil && p.Account.IsAPIKeyOrBedrock(),
+			"supports_local_quota", p.Account != nil && p.Account.SupportsLocalQuotaControl(),
 			"service_nil", deps.balanceNotifyService == nil,
 		)
 		return

@@ -150,7 +150,7 @@ func isAccountAvailableAt(acc *Account, now time.Time) bool {
 	if acc.TempUnschedulableUntil != nil && now.Before(*acc.TempUnschedulableUntil) {
 		return false
 	}
-	if acc.IsAPIKeyOrBedrock() && acc.IsQuotaExceeded() {
+	if acc.SupportsLocalQuotaControl() && acc.IsQuotaExceeded() {
 		return false
 	}
 	return true

@@ -361,6 +361,11 @@
         </div>
       </div>
 
+      <ClaudeWebSafetyPanel
+        v-if="form.platform === 'anthropic' && accountCategory === 'web_session'"
+        v-model="claudeWebSafety"
+      />
+
       <!-- Account Type Selection (OpenAI) -->
       <div v-if="form.platform === 'openai'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
@@ -3595,6 +3600,11 @@ import {
   applyInterceptWarmup,
   buildClaudeWebCredentials
 } from '@/components/account/credentialsBuilder'
+import {
+  createClaudeWebSafetyState,
+  serializeClaudeWebSafety
+} from '@/components/account/claudeWebSafety'
+import ClaudeWebSafetyPanel from '@/components/account/ClaudeWebSafetyPanel.vue'
 import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
 import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
@@ -3722,6 +3732,7 @@ const claudeWebCookieFile = ref('')
 const claudeWebCookieFileName = ref('')
 const claudeWebCookieHeader = ref('')
 const claudeWebSessionKey = ref('')
+const claudeWebSafety = ref(createClaudeWebSafetyState())
 
 const syncPreviewCredentials = computed(() => {
   if (!apiKeyValue.value) return undefined
@@ -4596,6 +4607,7 @@ const resetForm = () => {
   claudeWebCookieFileName.value = ''
   claudeWebCookieHeader.value = ''
   claudeWebSessionKey.value = ''
+  claudeWebSafety.value = createClaudeWebSafetyState()
   editQuotaLimit.value = null
   editQuotaDailyLimit.value = null
   editQuotaWeeklyLimit.value = null
@@ -4909,7 +4921,8 @@ const handleSubmit = async () => {
       appStore.showError(t('admin.accounts.claudeWeb.credentialsRequired'))
       return
     }
-    await createAccountAndFinish('anthropic', 'web_session', credentials)
+    const extra = serializeClaudeWebSafety(claudeWebSafety.value)
+    await createAccountAndFinish('anthropic', 'web_session', credentials, extra)
     return
   }
 
@@ -5159,7 +5172,7 @@ const createAccountAndFinish = async (
   }
   // Inject quota limits for apikey/bedrock accounts
   let finalExtra = extra
-  if (type === 'apikey' || type === 'bedrock') {
+  if (type === 'apikey' || type === 'bedrock' || type === 'web_session') {
     const quotaExtra: Record<string, unknown> = { ...(extra || {}) }
     if (editQuotaLimit.value != null && editQuotaLimit.value > 0) {
       quotaExtra.quota_limit = editQuotaLimit.value

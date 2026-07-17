@@ -132,7 +132,7 @@ func (a *Account) IsSchedulable() bool {
 	if a.TempUnschedulableUntil != nil && now.Before(*a.TempUnschedulableUntil) {
 		return false
 	}
-	if a.IsAPIKeyOrBedrock() && a.IsQuotaExceeded() {
+	if a.SupportsLocalQuotaControl() && a.IsQuotaExceeded() {
 		return false
 	}
 	return true
@@ -1052,6 +1052,10 @@ func (a *Account) IsAPIKeyOrBedrock() bool {
 	return a.Type == AccountTypeAPIKey || a.Type == AccountTypeBedrock
 }
 
+func (a *Account) SupportsLocalQuotaControl() bool {
+	return a != nil && (a.IsAPIKeyOrBedrock() || a.IsClaudeWebSession())
+}
+
 func (a *Account) IsOpenAI() bool {
 	return a.Platform == PlatformOpenAI
 }
@@ -1579,6 +1583,11 @@ const (
 // 仅这两类账号支持 5h 窗口额度控制和会话数量控制
 func (a *Account) IsAnthropicOAuthOrSetupToken() bool {
 	return a.Platform == PlatformAnthropic && (a.Type == AccountTypeOAuth || a.Type == AccountTypeSetupToken)
+}
+
+func (a *Account) SupportsSubscriptionSafetyLimits() bool {
+	return a != nil && a.Platform == PlatformAnthropic &&
+		(a.Type == AccountTypeOAuth || a.Type == AccountTypeSetupToken || a.Type == AccountTypeWebSession)
 }
 
 // IsTLSFingerprintEnabled 检查是否启用 TLS 指纹伪装
@@ -2561,6 +2570,7 @@ func (a *Account) CheckTPMSchedulability(currentTPM int) WindowCostSchedulabilit
 //   - 费用 < 阈值: WindowCostSchedulable
 //   - 费用 >= 阈值 且 < 阈值+预留: WindowCostStickyOnly
 //   - 费用 >= 阈值+预留: WindowCostNotSchedulable
+//
 // utilizationInFlightSafetyFactor 是"在飞请求预扣"的安全系数（A 方案：保守兜量）。
 // >1 表示宁可略微高估在飞消耗、提前收手，也不放任越过 limit+reserve 红线。
 const utilizationInFlightSafetyFactor = 1.4

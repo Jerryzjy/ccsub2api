@@ -21,6 +21,8 @@ const (
 	ClaudeWebSecCHUA   = `"Chromium";v="146", "Google Chrome";v="146", "Not_A Brand";v="99"`
 )
 
+var ErrClaudeWebProfileDecode = errors.New("decode Claude Web profile response")
+
 type ClaudeWebTransport interface {
 	Do(ctx context.Context, req *http.Request, proxyURL string, accountID int64) (*http.Response, error)
 }
@@ -43,6 +45,26 @@ type ClaudeWebClient struct {
 
 func NewClaudeWebClient(transport ClaudeWebTransport) *ClaudeWebClient {
 	return &ClaudeWebClient{transport: transport, baseURL: ClaudeWebBaseURL, now: time.Now}
+}
+
+func (c *ClaudeWebClient) FetchProfile(ctx context.Context, account *Account, proxyURL string) (ClaudeWebProfile, error) {
+	request, err := c.newRequest(ctx, account, http.MethodGet, "/api/account", nil, "/new")
+	if err != nil {
+		return ClaudeWebProfile{}, err
+	}
+	response, err := c.transport.Do(ctx, request, proxyURL, account.ID)
+	if err != nil {
+		return ClaudeWebProfile{}, fmt.Errorf("fetch Claude Web profile: %w", err)
+	}
+	defer response.Body.Close()
+	if err := claudeWebRequireStatus(response, http.StatusOK); err != nil {
+		return ClaudeWebProfile{}, err
+	}
+	var raw claudeWebAccountProfile
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&raw); err != nil {
+		return ClaudeWebProfile{}, ErrClaudeWebProfileDecode
+	}
+	return normalizeClaudeWebProfile(raw), nil
 }
 
 func (c *ClaudeWebClient) ResolveOrganization(ctx context.Context, account *Account, proxyURL string) (string, error) {

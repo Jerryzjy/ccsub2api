@@ -3570,7 +3570,16 @@ export default {
         sessionKeyPlaceholder: 'sk-ant-sid...',
         sessionKeyHint: '完整 Cookie 已包含 sessionKey 时可留空。',
         editHint: '全部留空会保留当前 Cookie 和 sessionKey。',
-        credentialsRequired: '请选择 Cookie 文件、填写 Cookie Header，或提供 sessionKey'
+        credentialsRequired: '请选择 Cookie 文件、填写 Cookie Header，或提供 sessionKey',
+        syncedEmail: '已同步邮箱',
+        autoDetectTier: '自动识别（未识别时按 Pro）',
+        applySafetyPreset: '填充缺失的安全预设',
+        tierPresetHint: '连接测试会同步订阅等级和邮箱；手动等级不会被覆盖，预设只填充缺失值。',
+        localQuotaLabel: '本地费用配额',
+        totalQuota: '总配额（USD）',
+        dailyQuota: '每日配额（USD）',
+        weeklyQuota: '每周配额（USD）',
+        localQuotaHint: '这是按 API 等价成本计算的本地保护上限，不代表 Claude 网页显示的真实订阅余额。'
       },
       // OpenAI specific hints
       openai: {

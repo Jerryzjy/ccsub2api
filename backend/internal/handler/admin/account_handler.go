@@ -118,7 +118,7 @@ type CreateAccountRequest struct {
 type UpdateAccountRequest struct {
 	Name                    string         `json:"name"`
 	Notes                   *string        `json:"notes"`
-	Type                    string         `json:"type" binding:"omitempty,oneof=oauth setup-token apikey upstream bedrock service_account"`
+	Type                    string         `json:"type" binding:"omitempty,oneof=oauth setup-token apikey upstream bedrock service_account web_session"`
 	Credentials             map[string]any `json:"credentials"`
 	Extra                   map[string]any `json:"extra"`
 	ProxyID                 *int64         `json:"proxy_id"`
@@ -552,6 +552,12 @@ func (h *AccountHandler) Create(c *gin.Context) {
 		response.BadRequest(c, "rate_multiplier must be >= 0")
 		return
 	}
+	normalizedExtra, normalizeErr := normalizeClaudeWebAccountExtra(req.Platform, req.Type, req.Extra, true)
+	if normalizeErr != nil {
+		response.BadRequest(c, normalizeErr.Error())
+		return
+	}
+	req.Extra = normalizedExtra
 	// base_rpm 输入校验：负值归零，超过 10000 截断
 	sanitizeExtraBaseRPM(req.Extra)
 	sanitizeExtraOutboundHeaders(req.Extra)
@@ -637,6 +643,32 @@ func (h *AccountHandler) Update(c *gin.Context) {
 	if req.RateMultiplier != nil && *req.RateMultiplier < 0 {
 		response.BadRequest(c, "rate_multiplier must be >= 0")
 		return
+	}
+	existing, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	effectiveType := req.Type
+	if effectiveType == "" {
+		effectiveType = existing.Type
+	}
+	if existing.Platform == service.PlatformAnthropic && effectiveType == service.AccountTypeWebSession && len(req.Extra) > 0 {
+		_, tierChanged := req.Extra["claude_tier"]
+		_, presetExists := existing.Extra["claude_safety_preset_version"]
+		cleanExtra, normalizeErr := normalizeClaudeWebAccountExtra(existing.Platform, effectiveType, req.Extra, tierChanged || !presetExists)
+		if normalizeErr != nil {
+			response.BadRequest(c, normalizeErr.Error())
+			return
+		}
+		mergedExtra := make(map[string]any, len(existing.Extra)+len(cleanExtra))
+		for key, value := range existing.Extra {
+			mergedExtra[key] = value
+		}
+		for key, value := range cleanExtra {
+			mergedExtra[key] = value
+		}
+		req.Extra = mergedExtra
 	}
 	// base_rpm 输入校验：负值归零，超过 10000 截断
 	sanitizeExtraBaseRPM(req.Extra)
@@ -2464,6 +2496,13 @@ func (h *AccountHandler) GetAntigravityDefaultModelMapping(c *gin.Context) {
 //   - base_tpm / tpm_sticky_buffer：负值归零，超过 100000000（每分钟 1 亿 token）截断。
 //
 // extra 为 nil 或不含对应键时对该键无操作。
+func normalizeClaudeWebAccountExtra(platform, accountType string, extra map[string]any, applyDefaults bool) (map[string]any, error) {
+	if platform != service.PlatformAnthropic || accountType != service.AccountTypeWebSession {
+		return extra, nil
+	}
+	return service.NormalizeClaudeWebSafetyExtra(extra, applyDefaults)
+}
+
 func sanitizeExtraBaseRPM(extra map[string]any) {
 	if extra == nil {
 		return

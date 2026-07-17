@@ -352,6 +352,9 @@ func (s *AccountTestService) testClaudeWebAccountConnection(c *gin.Context, ctx 
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
+	if err := s.syncClaudeWebProfile(ctx, account, proxyURL); err != nil {
+		return s.handleClaudeWebTestError(c, ctx, account, err)
+	}
 	organizationID, err := s.claudeWebClient.ResolveOrganization(ctx, account, proxyURL)
 	if err != nil {
 		return s.handleClaudeWebTestError(c, ctx, account, err)
@@ -430,6 +433,9 @@ func (s *AccountTestService) probeClaudeWebSessionAccount(ctx context.Context, a
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
+	if err := s.syncClaudeWebProfile(ctx, account, proxyURL); err != nil {
+		return "", err
+	}
 	organizationID, err := s.claudeWebClient.ResolveOrganization(ctx, account, proxyURL)
 	if err != nil {
 		return "", err
@@ -444,6 +450,54 @@ func (s *AccountTestService) probeClaudeWebSessionAccount(ctx context.Context, a
 		return "", err
 	}
 	return organizationID, nil
+}
+
+func (s *AccountTestService) syncClaudeWebProfile(ctx context.Context, account *Account, proxyURL string) error {
+	if s == nil || s.claudeWebClient == nil || account == nil || !account.IsClaudeWebSession() {
+		return errors.New("invalid Claude Web profile sync")
+	}
+	profile, err := s.claudeWebClient.FetchProfile(ctx, account, proxyURL)
+	if err != nil {
+		if errors.Is(err, ErrClaudeWebProfileDecode) {
+			slog.Warn("claude_web_profile_sync_skipped", "account_id", account.ID, "stage", "decode")
+			return nil
+		}
+		return err
+	}
+
+	if profile.EmailAddress != "" && profile.EmailAddress != account.GetCredential(ClaudeWebCredentialEmailAddress) {
+		credentials := cloneCredentials(account.Credentials)
+		credentials[ClaudeWebCredentialEmailAddress] = profile.EmailAddress
+		if s.accountRepo != nil {
+			if err := s.accountRepo.UpdateCredentials(ctx, account.ID, credentials); err != nil {
+				return fmt.Errorf("persist Claude Web profile credentials: %w", err)
+			}
+		}
+		account.Credentials = credentials
+	}
+
+	extraInput := make(map[string]any, len(account.Extra)+4)
+	for key, value := range account.Extra {
+		extraInput[key] = value
+	}
+	if extraInput["claude_tier_source"] != ClaudeTierSourceManual && profile.Tier != "" {
+		extraInput["claude_tier"] = profile.Tier
+		extraInput["claude_tier_source"] = profile.TierSource
+	}
+	normalized, err := NormalizeClaudeWebSafetyExtra(extraInput, true)
+	if err != nil {
+		return fmt.Errorf("normalize Claude Web safety metadata: %w", err)
+	}
+	if s.accountRepo != nil {
+		if err := s.accountRepo.UpdateExtra(ctx, account.ID, normalized); err != nil {
+			return fmt.Errorf("persist Claude Web safety metadata: %w", err)
+		}
+	}
+	for key, value := range normalized {
+		extraInput[key] = value
+	}
+	account.Extra = extraInput
+	return nil
 }
 
 // ProbeClaudeWebSession validates a saved Web Session account after create,
