@@ -662,9 +662,14 @@ func validateDataAccount(item DataAccount) error {
 		return errors.New("account credentials is required")
 	}
 	switch item.Type {
-	case service.AccountTypeOAuth, service.AccountTypeSetupToken, service.AccountTypeAPIKey, service.AccountTypeUpstream:
+	case service.AccountTypeOAuth, service.AccountTypeSetupToken, service.AccountTypeAPIKey, service.AccountTypeUpstream, service.AccountTypeWebSession:
 	default:
 		return fmt.Errorf("account type is invalid: %s", item.Type)
+	}
+	if item.Type == service.AccountTypeWebSession {
+		if err := service.ValidateClaudeWebSessionCredentials(item.Platform, item.Credentials); err != nil {
+			return err
+		}
 	}
 	if item.RateMultiplier != nil && *item.RateMultiplier < 0 {
 		return errors.New("rate_multiplier must be >= 0")

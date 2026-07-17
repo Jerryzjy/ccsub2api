@@ -22,7 +22,7 @@
 - Create: `backend/internal/service/claude_web_credentials_test.go`
 - Create: `backend/internal/service/claude_web_credentials.go`
 
-- [ ] **Step 1: Write failing validation tests**
+- [x] **Step 1: Write failing validation tests**
 
 ```go
 func TestValidateClaudeWebSessionCredentials(t *testing.T) {
@@ -47,13 +47,13 @@ func TestValidateClaudeWebSessionCredentials(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests and verify RED**
+- [x] **Step 2: Run the tests and verify RED**
 
 Run: `go test ./internal/service ./internal/handler/admin -run 'TestValidateClaudeWebSessionCredentials|TestAccountDataImport'`
 
 Expected: FAIL because `AccountTypeWebSession` and `ValidateClaudeWebSessionCredentials` do not exist.
 
-- [ ] **Step 3: Add the account constant and validator**
+- [x] **Step 3: Add the account constant and validator**
 
 ```go
 const AccountTypeWebSession = "web_session"
@@ -72,7 +72,7 @@ func ValidateClaudeWebSessionCredentials(platform string, credentials map[string
 
 Extend the create binding `oneof`, data import type switch, and create/import validators. Add `Account.IsClaudeWebSession()` for platform/type checks.
 
-- [ ] **Step 4: Run the targeted tests and verify GREEN**
+- [x] **Step 4: Run the targeted tests and verify GREEN**
 
 Run: `go test ./internal/service ./internal/handler/admin -run 'TestValidateClaudeWebSessionCredentials|TestAccountDataImport'`
 
@@ -84,7 +84,7 @@ Expected: PASS.
 - Modify: `backend/internal/service/claude_web_credentials.go`
 - Modify: `backend/internal/service/claude_web_credentials_test.go`
 
-- [ ] **Step 1: Write failing parser tests**
+- [x] **Step 1: Write failing parser tests**
 
 ```go
 func TestNormalizeClaudeWebCookie_Netscape(t *testing.T) {
@@ -102,13 +102,13 @@ func TestNormalizeClaudeWebCookie_HeaderPrefersCookieSessionKey(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run and verify RED**
+- [x] **Step 2: Run and verify RED**
 
 Run: `go test ./internal/service -run TestNormalizeClaudeWebCookie`
 
 Expected: FAIL because the parser is missing.
 
-- [ ] **Step 3: Implement a deterministic parser**
+- [x] **Step 3: Implement a deterministic parser**
 
 ```go
 type ClaudeWebCookie struct {
@@ -122,7 +122,7 @@ func NormalizeClaudeWebCookie(raw string, now time.Time) (ClaudeWebCookie, error
 
 The implementation must parse Cookie Header and Netscape formats, ignore comments/blank lines/expired cookies/non-Claude domains, prefer root-path `.claude.ai` duplicates, sort output by cookie name, and never include raw values in errors.
 
-- [ ] **Step 4: Run and verify GREEN**
+- [x] **Step 4: Run and verify GREEN**
 
 Run: `go test ./internal/service -run TestNormalizeClaudeWebCookie`
 

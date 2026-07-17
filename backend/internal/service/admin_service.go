@@ -2618,6 +2618,14 @@ func (s *adminServiceImpl) GetAccountsByIDs(ctx context.Context, ids []int64) ([
 }
 
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
+	if input == nil {
+		return nil, errors.New("account input is required")
+	}
+	if input.Type == AccountTypeWebSession {
+		if err := ValidateClaudeWebSessionCredentials(input.Platform, input.Credentials); err != nil {
+			return nil, err
+		}
+	}
 	// 绑定分组
 	groupIDs := input.GroupIDs
 	// 如果没有指定分组,自动绑定对应平台的默认分组
