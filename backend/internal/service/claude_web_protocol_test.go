@@ -130,3 +130,18 @@ func TestBuildClaudeWebCompletion(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, string(raw), `"tools"`)
 }
+
+func TestResolveClaudeWebModel(t *testing.T) {
+	tests := map[string]string{
+		"claude-sonnet-4-5-20250929": "claude-sonnet-5",
+		"claude-3-7-sonnet-latest":   "claude-sonnet-5",
+		"claude-opus-4-20250514":     "claude-opus-4-8",
+		"claude-haiku-4-5-20251001":  "claude-haiku-4-5",
+		"claude-sonnet-4-6":          "claude-sonnet-4-6",
+	}
+	for input, want := range tests {
+		t.Run(input, func(t *testing.T) {
+			require.Equal(t, want, ResolveClaudeWebModel(input))
+		})
+	}
+}

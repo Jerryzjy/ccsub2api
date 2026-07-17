@@ -54,7 +54,8 @@ func (s *GatewayService) forwardClaudeWebSession(
 	if s.claudeWebClient == nil {
 		return nil, errors.New("Claude Web client is not configured")
 	}
-	payload, err := BuildClaudeWebCompletion(parsed.Body.Bytes(), parsed.Model)
+	upstreamModel := ResolveClaudeWebModel(account.GetMappedModel(parsed.Model))
+	payload, err := BuildClaudeWebCompletion(parsed.Body.Bytes(), upstreamModel)
 	if err != nil {
 		return nil, err
 	}

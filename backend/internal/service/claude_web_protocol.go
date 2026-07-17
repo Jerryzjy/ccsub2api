@@ -61,6 +61,26 @@ type claudeWebContentBlock struct {
 	Text string `json:"text"`
 }
 
+func ResolveClaudeWebModel(model string) string {
+	normalized := strings.ToLower(strings.TrimSpace(model))
+	switch normalized {
+	case "claude-fable-5", "claude-opus-4-8", "claude-haiku-4-5",
+		"claude-opus-4-7", "claude-opus-4-6", "claude-opus-3",
+		"claude-sonnet-4-6", "claude-sonnet-5":
+		return normalized
+	}
+	switch {
+	case strings.Contains(normalized, "haiku"):
+		return "claude-haiku-4-5"
+	case strings.Contains(normalized, "opus"):
+		return "claude-opus-4-8"
+	case strings.Contains(normalized, "fable"):
+		return "claude-fable-5"
+	default:
+		return "claude-sonnet-5"
+	}
+}
+
 func BuildClaudeWebPrompt(body []byte) (string, error) {
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.UseNumber()

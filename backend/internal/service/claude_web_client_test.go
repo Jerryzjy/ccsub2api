@@ -94,6 +94,25 @@ func TestClaudeWebClientResolveOrganizationUsesCachedCredential(t *testing.T) {
 	require.Empty(t, transport.requests)
 }
 
+func TestClaudeWebClientResolveOrganizationUsesCookieOrganization(t *testing.T) {
+	transport := &claudeWebTransportStub{}
+	client := NewClaudeWebClient(transport)
+	account := &Account{
+		ID:       81,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeWebSession,
+		Credentials: map[string]any{
+			ClaudeWebCredentialCookie: "sessionKey=test; lastActiveOrg=org-cookie",
+		},
+	}
+
+	got, err := client.ResolveOrganization(context.Background(), account, "")
+
+	require.NoError(t, err)
+	require.Equal(t, "org-cookie", got)
+	require.Empty(t, transport.requests)
+}
+
 func TestClaudeWebClientCreateConversation(t *testing.T) {
 	transport := &claudeWebTransportStub{responses: []*http.Response{
 		claudeWebTestResponse(http.StatusCreated, `{"uuid":"conv-1"}`),

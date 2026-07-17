@@ -52,6 +52,15 @@ func (c *ClaudeWebClient) ResolveOrganization(ctx context.Context, account *Acco
 	if cached := strings.TrimSpace(account.GetCredential(ClaudeWebCredentialOrganizationID)); cached != "" {
 		return cached, nil
 	}
+	if rawCookie := strings.TrimSpace(account.GetCredential(ClaudeWebCredentialCookie)); rawCookie != "" {
+		normalized, err := NormalizeClaudeWebCookie(rawCookie, c.now())
+		if err != nil {
+			return "", err
+		}
+		if normalized.OrganizationID != "" {
+			return normalized.OrganizationID, nil
+		}
+	}
 	request, err := c.newRequest(ctx, account, http.MethodGet, "/api/organizations", nil, "/new")
 	if err != nil {
 		return "", err

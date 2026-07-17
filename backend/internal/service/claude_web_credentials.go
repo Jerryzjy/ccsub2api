@@ -41,6 +41,15 @@ func ValidateClaudeWebSessionCredentials(platform string, credentials map[string
 	if strings.TrimSpace(cookie) == "" && strings.TrimSpace(sessionKey) == "" {
 		return errors.New("cookie or session_key is required")
 	}
+	if strings.TrimSpace(cookie) != "" {
+		normalized, err := NormalizeClaudeWebCookie(cookie, time.Now())
+		if err != nil {
+			return fmt.Errorf("invalid cookie: %w", err)
+		}
+		if normalized.SessionKey == "" && strings.TrimSpace(sessionKey) == "" {
+			return errors.New("cookie does not contain sessionKey")
+		}
+	}
 	return nil
 }
 
@@ -97,8 +106,8 @@ func parseClaudeWebCookieInput(raw string, now time.Time) (map[string]claudeWebC
 	lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
 	netscape := false
 	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		line, skip := normalizeNetscapeCookieLine(line)
+		if skip {
 			continue
 		}
 		if strings.Count(line, "\t") >= 6 {
@@ -113,8 +122,8 @@ func parseClaudeWebCookieInput(raw string, now time.Time) (map[string]claudeWebC
 
 	entries := make(map[string]claudeWebCookieEntry)
 	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		line, skip := normalizeNetscapeCookieLine(line)
+		if skip {
 			continue
 		}
 		fields := strings.SplitN(line, "\t", 7)
@@ -148,6 +157,20 @@ func parseClaudeWebCookieInput(raw string, now time.Time) (map[string]claudeWebC
 		}
 	}
 	return entries, true, nil
+}
+
+func normalizeNetscapeCookieLine(line string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return "", true
+	}
+	if strings.HasPrefix(trimmed, "#HttpOnly_") {
+		return strings.TrimPrefix(trimmed, "#HttpOnly_"), false
+	}
+	if strings.HasPrefix(trimmed, "#") {
+		return "", true
+	}
+	return line, false
 }
 
 func parseCookieHeader(raw string) (map[string]claudeWebCookieEntry, error) {

@@ -42,6 +42,12 @@ func TestValidateClaudeWebSessionCredentials(t *testing.T) {
 			credentials: map[string]any{"cookie": "  ", "session_key": "\t"},
 			wantErr:     "cookie or session_key is required",
 		},
+		{
+			name:        "cookie without session key",
+			platform:    PlatformAnthropic,
+			credentials: map[string]any{"cookie": "lastActiveOrg=org-only"},
+			wantErr:     "cookie does not contain sessionKey",
+		},
 	}
 
 	for _, tt := range tests {
@@ -86,6 +92,18 @@ func TestNormalizeClaudeWebCookie_Netscape(t *testing.T) {
 	require.Equal(t, "lastActiveOrg=org-2; sessionKey=sk-test", got.Header)
 	require.Equal(t, "sk-test", got.SessionKey)
 	require.Equal(t, "org-2", got.OrganizationID)
+}
+
+func TestNormalizeClaudeWebCookie_NetscapeHttpOnlySessionKey(t *testing.T) {
+	raw := "# Netscape HTTP Cookie File\n" +
+		"#HttpOnly_.claude.ai\tTRUE\t/\tTRUE\t4102444800\tsessionKey\tsk-httponly\n" +
+		".claude.ai\tTRUE\t/\tTRUE\t4102444800\tlastActiveOrg\torg-http\n"
+
+	got, err := NormalizeClaudeWebCookie(raw, time.Unix(1_800_000_000, 0))
+
+	require.NoError(t, err)
+	require.Equal(t, "lastActiveOrg=org-http; sessionKey=sk-httponly", got.Header)
+	require.Equal(t, "sk-httponly", got.SessionKey)
 }
 
 func TestNormalizeClaudeWebCookie_NetscapeSkipsExpiredAndPrefersRootPath(t *testing.T) {

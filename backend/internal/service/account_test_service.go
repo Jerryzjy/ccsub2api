@@ -344,7 +344,7 @@ func (s *AccountTestService) testClaudeWebAccountConnection(c *gin.Context, ctx 
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to encode test payload")
 	}
-	completion, err := BuildClaudeWebCompletion(payloadBytes, testModelID)
+	completion, err := BuildClaudeWebCompletion(payloadBytes, ResolveClaudeWebModel(account.GetMappedModel(testModelID)))
 	if err != nil {
 		return s.sendErrorAndEnd(c, err.Error())
 	}
