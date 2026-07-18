@@ -67,9 +67,9 @@ const concurrencyClass = computed(() => {
 })
 
 // ====== 窗口费用 ======
-const isAnthropicOAuthOrSetupToken = computed(() =>
+const supportsSubscriptionSafetyLimits = computed(() =>
   props.account.platform === 'anthropic' &&
-  (props.account.type === 'oauth' || props.account.type === 'setup-token')
+  (props.account.type === 'oauth' || props.account.type === 'setup-token' || props.account.type === 'web_session')
 )
 
 const extra = computed(() => (props.account.extra || {}) as Record<string, unknown>)
@@ -91,7 +91,7 @@ const currentUtilization = computed(() => {
 })
 
 const showWindowCost = computed(() =>
-  isAnthropicOAuthOrSetupToken.value && (
+  supportsSubscriptionSafetyLimits.value && (
     (props.account.window_cost_limit != null && props.account.window_cost_limit > 0) ||
     isUtilizationMode.value
   )
@@ -153,7 +153,7 @@ const windowCostTooltip = computed(() => {
 
 // ====== 会话限制 ======
 const showSessionLimit = computed(() =>
-  isAnthropicOAuthOrSetupToken.value &&
+  supportsSubscriptionSafetyLimits.value &&
   props.account.max_sessions != null &&
   props.account.max_sessions > 0
 )
@@ -180,7 +180,7 @@ const sessionLimitTooltip = computed(() => {
 
 // ====== RPM ======
 const showRpmLimit = computed(() =>
-  isAnthropicOAuthOrSetupToken.value &&
+  supportsSubscriptionSafetyLimits.value &&
   props.account.base_rpm != null &&
   props.account.base_rpm > 0
 )
@@ -289,15 +289,19 @@ const formatCost = (value: number | null | undefined) => {
 }
 
 // ====== 配额 ======
-const isQuotaEligible = computed(() => props.account.type === 'apikey' || props.account.type === 'bedrock')
+const supportsLocalQuotaControl = computed(() =>
+  props.account.type === 'apikey' ||
+  props.account.type === 'bedrock' ||
+  (props.account.platform === 'anthropic' && props.account.type === 'web_session')
+)
 
 const showDailyQuota = computed(() =>
-  isQuotaEligible.value && props.account.quota_daily_limit != null && props.account.quota_daily_limit > 0
+  supportsLocalQuotaControl.value && props.account.quota_daily_limit != null && props.account.quota_daily_limit > 0
 )
 const showWeeklyQuota = computed(() =>
-  isQuotaEligible.value && props.account.quota_weekly_limit != null && props.account.quota_weekly_limit > 0
+  supportsLocalQuotaControl.value && props.account.quota_weekly_limit != null && props.account.quota_weekly_limit > 0
 )
 const showTotalQuota = computed(() =>
-  isQuotaEligible.value && props.account.quota_limit != null && props.account.quota_limit > 0
+  supportsLocalQuotaControl.value && props.account.quota_limit != null && props.account.quota_limit > 0
 )
 </script>

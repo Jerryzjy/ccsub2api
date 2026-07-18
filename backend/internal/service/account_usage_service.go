@@ -328,6 +328,15 @@ func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64, for
 		return usage, err
 	}
 
+	if account.IsClaudeWebSession() {
+		usage := buildClaudeWebSessionUsage(account, time.Now())
+		if s.usageLogRepo != nil {
+			s.addWindowStats(ctx, account, usage)
+			applyClaudeWebLocalWindowUtilization(account, usage)
+		}
+		return usage, nil
+	}
+
 	// 只有oauth类型账号可以通过API获取usage（有profile scope）
 	if account.CanGetUsage() {
 		var apiResp *ClaudeUsageResponse
@@ -417,6 +426,80 @@ func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64, for
 
 	// API Key账号不支持usage查询
 	return nil, fmt.Errorf("account type %s does not support usage query", account.Type)
+}
+
+func buildClaudeWebSessionUsage(account *Account, now time.Time) *UsageInfo {
+	usage := &UsageInfo{
+		FiveHour: &UsageProgress{},
+		SevenDay: &UsageProgress{},
+	}
+	if account == nil {
+		return usage
+	}
+
+	if account.SessionWindowEnd != nil && now.Before(*account.SessionWindowEnd) {
+		usage.FiveHour.Utilization = parseExtraFloat64(account.Extra["session_window_utilization"]) * 100
+		usage.FiveHour.ResetsAt = account.SessionWindowEnd
+		usage.FiveHour.RemainingSeconds = remainingWindowSeconds(*account.SessionWindowEnd, now)
+	}
+
+	weeklyLimit := account.GetQuotaWeeklyLimit()
+	weeklyResetAt := claudeWebWeeklyResetAt(account, now)
+	if weeklyLimit > 0 && (!account.IsWeeklyQuotaPeriodExpired() || weeklyResetAt != nil) {
+		usage.SevenDay.Utilization = account.GetQuotaWeeklyUsed() / weeklyLimit * 100
+		if weeklyResetAt != nil {
+			usage.SevenDay.ResetsAt = weeklyResetAt
+			usage.SevenDay.RemainingSeconds = remainingWindowSeconds(*weeklyResetAt, now)
+		}
+	}
+
+	return usage
+}
+
+func applyClaudeWebLocalWindowUtilization(account *Account, usage *UsageInfo) {
+	if account == nil || usage == nil || usage.FiveHour == nil || usage.FiveHour.WindowStats == nil {
+		return
+	}
+	if usage.FiveHour.Utilization <= 0 {
+		if limit := account.GetWindowCostLimit(); limit > 0 {
+			usage.FiveHour.Utilization = usage.FiveHour.WindowStats.StandardCost / limit * 100
+		}
+	}
+	if usage.FiveHour.ResetsAt == nil && usage.FiveHour.Utilization > 0 {
+		resetAt := account.GetCurrentWindowStartTime().Add(5 * time.Hour)
+		usage.FiveHour.ResetsAt = &resetAt
+		usage.FiveHour.RemainingSeconds = remainingWindowSeconds(resetAt, time.Now())
+	}
+}
+
+func claudeWebWeeklyResetAt(account *Account, now time.Time) *time.Time {
+	if account == nil || account.Extra == nil {
+		return nil
+	}
+	if account.GetQuotaWeeklyResetMode() == "fixed" {
+		resetAt := parseExtraTime(account.Extra["quota_weekly_reset_at"])
+		if !resetAt.IsZero() && now.Before(resetAt) {
+			return &resetAt
+		}
+		return nil
+	}
+	start := parseExtraTime(account.Extra["quota_weekly_start"])
+	if start.IsZero() {
+		return nil
+	}
+	resetAt := start.Add(7 * 24 * time.Hour)
+	if !now.Before(resetAt) {
+		return nil
+	}
+	return &resetAt
+}
+
+func remainingWindowSeconds(resetAt, now time.Time) int {
+	remaining := int(resetAt.Sub(now).Seconds())
+	if remaining < 0 {
+		return 0
+	}
+	return remaining
 }
 
 // GetPassiveUsage 从 Account.Extra 中的被动采样数据构建 UsageInfo，不调用外部 API。

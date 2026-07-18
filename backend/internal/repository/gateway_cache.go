@@ -11,6 +11,11 @@ import (
 
 const stickySessionPrefix = "sticky_session:"
 
+const (
+	claudeWebConversationPrefix     = "web-session:conversation:"
+	claudeWebConversationLockPrefix = "web-session:conversation-lock:"
+)
+
 type gatewayCache struct {
 	rdb *redis.Client
 }
@@ -52,8 +57,38 @@ func (c *gatewayCache) DeleteSessionAccountID(ctx context.Context, groupID int64
 	return c.rdb.Del(ctx, key).Err()
 }
 
+func (c *gatewayCache) GetClaudeWebConversation(ctx context.Context, key string) ([]byte, error) {
+	value, err := c.rdb.Get(ctx, claudeWebConversationPrefix+key).Bytes()
+	if err == redis.Nil {
+		return nil, nil
+	}
+	return value, err
+}
+
+func (c *gatewayCache) SetClaudeWebConversation(ctx context.Context, key string, value []byte, ttl time.Duration) error {
+	return c.rdb.Set(ctx, claudeWebConversationPrefix+key, value, ttl).Err()
+}
+
+func (c *gatewayCache) DeleteClaudeWebConversation(ctx context.Context, key string) error {
+	return c.rdb.Del(ctx, claudeWebConversationPrefix+key).Err()
+}
+
+func (c *gatewayCache) TryLockClaudeWebConversation(ctx context.Context, key, owner string, ttl time.Duration) (bool, error) {
+	return c.rdb.SetNX(ctx, claudeWebConversationLockPrefix+key, owner, ttl).Result()
+}
+
+func (c *gatewayCache) UnlockClaudeWebConversation(ctx context.Context, key, owner string) error {
+	const releaseIfOwner = `
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+  return redis.call("DEL", KEYS[1])
+end
+return 0`
+	return c.rdb.Eval(ctx, releaseIfOwner, []string{claudeWebConversationLockPrefix + key}, owner).Err()
+}
+
 // Compile-time assertion: gatewayCache must implement CyberSessionBlockStore.
 var _ service.CyberSessionBlockStore = (*gatewayCache)(nil)
+var _ service.ClaudeWebConversationCache = (*gatewayCache)(nil)
 
 const cyberSessionBlockPrefix = "cyber_session_block:"
 

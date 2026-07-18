@@ -149,6 +149,54 @@ describe('AccountUsageCell', () => {
     expect(wrapper.text()).toContain('25')
   })
 
+  it('Anthropic Web Session accounts render 5h and 7d usage windows', async () => {
+    getUsage.mockResolvedValue({
+      five_hour: {
+        utilization: 35,
+        resets_at: '2026-03-08T12:00:00Z',
+        remaining_seconds: 3600,
+        window_stats: {
+          requests: 4,
+          tokens: 400,
+          cost: 0.04,
+          standard_cost: 0.04,
+          user_cost: 0.04
+        }
+      },
+      seven_day: {
+        utilization: 25,
+        resets_at: '2026-03-13T12:00:00Z',
+        remaining_seconds: 3600
+      }
+    })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 1601,
+          platform: 'anthropic',
+          type: 'web_session',
+          extra: {}
+        })
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'utilization', 'resetsAt'],
+            template: '<div class="usage-bar">{{ label }}|{{ utilization }}|{{ resetsAt }}</div>'
+          },
+          AccountQuotaInfo: true
+        }
+      }
+    })
+
+    await flushPromises()
+
+    expect(getUsage).toHaveBeenCalledWith(1601, undefined)
+    expect(wrapper.text()).toContain('5h|35|2026-03-08T12:00:00Z')
+    expect(wrapper.text()).toContain('7d|25|2026-03-13T12:00:00Z')
+  })
+
 
   it('OpenAI OAuth 快照已过期时首屏会重新请求 usage', async () => {
     getUsage.mockResolvedValue({

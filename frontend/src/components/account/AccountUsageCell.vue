@@ -1,22 +1,22 @@
 <template>
   <div ref="rootRef" v-if="showUsageWindows">
-    <!-- Anthropic OAuth and Setup Token accounts: fetch real usage data -->
+    <!-- Anthropic subscription accounts: fetch upstream or local usage windows -->
     <template
       v-if="
         account.platform === 'anthropic' &&
-        (account.type === 'oauth' || account.type === 'setup-token')
+        (account.type === 'oauth' || account.type === 'setup-token' || account.type === 'web_session')
       "
     >
       <!-- Loading state -->
       <div v-if="loading" class="space-y-1.5">
-        <!-- OAuth: 3 rows, Setup Token: 1 row -->
+        <!-- OAuth: 3 rows, Web Session: 2 rows, Setup Token: 1 row -->
         <div class="flex items-center gap-1">
           <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
           <div class="h-1.5 w-8 animate-pulse rounded-full bg-gray-200 dark:bg-gray-700"></div>
           <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
         </div>
-        <template v-if="account.type === 'oauth'">
-          <div class="flex items-center gap-1">
+        <template v-if="account.type === 'oauth' || account.type === 'web_session'">
+          <div v-if="account.type === 'oauth'" class="flex items-center gap-1">
             <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
             <div class="h-1.5 w-8 animate-pulse rounded-full bg-gray-200 dark:bg-gray-700"></div>
             <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
@@ -50,7 +50,7 @@
           color="indigo"
         />
 
-        <!-- 7d Window (OAuth only) -->
+        <!-- 7d Window -->
         <UsageProgressBar
           v-if="usageInfo.seven_day"
           label="7d"
@@ -69,7 +69,7 @@
         />
 
         <!-- Passive sampling label + active query button -->
-        <div class="flex items-center gap-1.5 mt-0.5">
+        <div v-if="account.type !== 'web_session'" class="flex items-center gap-1.5 mt-0.5">
           <span
             v-if="usageInfo.source === 'passive'"
             class="text-[9px] text-gray-400 dark:text-gray-500 italic"
@@ -556,16 +556,16 @@ let desktopViewportMediaQuery: MediaQueryList | null = null
 let desktopViewportListener: ((event: MediaQueryListEvent) => void) | null = null
 let visibilityObserver: IntersectionObserver | null = null
 
-// Show usage windows for OAuth and Setup Token accounts
+// Show usage windows for subscription-backed account types.
 const showUsageWindows = computed(() => {
   // Gemini: we can always compute local usage windows from DB logs (simulated quotas).
   if (props.account.platform === 'gemini') return true
-  return props.account.type === 'oauth' || props.account.type === 'setup-token'
+  return props.account.type === 'oauth' || props.account.type === 'setup-token' || props.account.type === 'web_session'
 })
 
 const shouldFetchUsage = computed(() => {
   if (props.account.platform === 'anthropic') {
-    return props.account.type === 'oauth' || props.account.type === 'setup-token'
+    return props.account.type === 'oauth' || props.account.type === 'setup-token' || props.account.type === 'web_session'
   }
   if (props.account.platform === 'gemini') {
     return true

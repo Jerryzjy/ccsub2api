@@ -236,8 +236,8 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		GroupIDs:                a.GroupIDs,
 	}
 
-	// 提取 5h 窗口费用控制和会话数量控制配置（仅 Anthropic OAuth/SetupToken 账号有效）
-	if a.IsAnthropicOAuthOrSetupToken() {
+	// 提取订阅账号安全控制配置（Anthropic OAuth/SetupToken/Web Session）。
+	if a.SupportsSubscriptionSafetyLimits() {
 		if limit := a.GetWindowCostLimit(); limit > 0 {
 			out.WindowCostLimit = &limit
 		}

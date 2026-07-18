@@ -76,10 +76,6 @@ func (s *GatewayService) forwardClaudeWebSession(
 		return nil, errors.New("Claude Web client is not configured")
 	}
 	upstreamModel := ResolveClaudeWebModel(account.GetMappedModel(parsed.Model))
-	payload, err := BuildClaudeWebCompletion(parsed.Body.Bytes(), upstreamModel)
-	if err != nil {
-		return nil, err
-	}
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
@@ -88,23 +84,106 @@ func (s *GatewayService) forwardClaudeWebSession(
 		return nil, err
 	}
 
-	organizationID, err := s.claudeWebClient.ResolveOrganization(ctx, account, proxyURL)
-	if err != nil {
-		return nil, claudeWebForwardError(err)
+	conversationCache := s.claudeWebConversationCache()
+	conversationKey := s.claudeWebConversationKey(parsed, account.ID)
+	if conversationKey == "" {
+		conversationCache = nil
 	}
-	conversationID, err := s.claudeWebClient.CreateConversation(ctx, account, proxyURL, organizationID)
+	unlock, err := acquireClaudeWebConversationLock(ctx, conversationCache, conversationKey)
 	if err != nil {
-		return nil, claudeWebForwardError(err)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		// Redis conversation state is an optimization. Fail open with the
+		// original one-request conversation behavior when it is unavailable.
+		conversationCache = nil
+		conversationKey = ""
+		unlock = func() {}
+		claudeWebConversationMetrics.cacheUnavailable.Add(1)
 	}
-	defer func() {
-		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-		defer cancel()
-		_ = s.claudeWebClient.DeleteConversation(cleanupCtx, account, proxyURL, organizationID, conversationID)
-	}()
+	defer unlock()
+
+	state, loadErr := loadClaudeWebConversationState(ctx, conversationCache, conversationKey)
+	if loadErr != nil {
+		conversationCache = nil
+		conversationKey = ""
+		state = nil
+		claudeWebConversationMetrics.cacheUnavailable.Add(1)
+	}
+	plan, err := PlanClaudeWebConversation(parsed, upstreamModel, state, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	recordClaudeWebConversationPlan(plan)
+	payload, err := BuildClaudeWebCompletion(parsed.Body.Bytes(), upstreamModel)
+	if err != nil {
+		return nil, err
+	}
+	payload.Prompt = plan.Prompt
+	if plan.Reused {
+		payload.ParentMessageUUID = plan.ParentMessageUUID
+	}
+
+	organizationID := ""
+	conversationID := ""
+	createdFresh := false
+	if plan.Reused && state != nil {
+		organizationID = state.OrganizationID
+		conversationID = state.ConversationID
+	} else {
+		if state != nil && conversationCache != nil {
+			_ = conversationCache.DeleteClaudeWebConversation(ctx, conversationKey)
+			deleteClaudeWebConversationBestEffort(ctx, s.claudeWebClient, account, proxyURL, state.OrganizationID, state.ConversationID)
+		}
+		organizationID, err = s.claudeWebClient.ResolveOrganization(ctx, account, proxyURL)
+		if err != nil {
+			return nil, claudeWebForwardError(err)
+		}
+		conversationID, err = s.claudeWebClient.CreateConversation(ctx, account, proxyURL, organizationID)
+		if err != nil {
+			return nil, claudeWebForwardError(err)
+		}
+		createdFresh = true
+	}
+
+	retainConversation := conversationCache != nil && conversationKey != ""
+	cleanupFreshConversation := func() {
+		if createdFresh {
+			deleteClaudeWebConversationBestEffort(ctx, s.claudeWebClient, account, proxyURL, organizationID, conversationID)
+		}
+	}
 
 	response, err := s.claudeWebClient.Complete(ctx, account, proxyURL, organizationID, conversationID, payload)
 	if err != nil {
-		return nil, claudeWebForwardError(err)
+		if plan.Reused && isClaudeWebConversationInvalid(err) {
+			claudeWebConversationMetrics.rebuild.Add(1)
+			_ = conversationCache.DeleteClaudeWebConversation(ctx, conversationKey)
+			deleteClaudeWebConversationBestEffort(ctx, s.claudeWebClient, account, proxyURL, organizationID, conversationID)
+
+			plan, err = PlanClaudeWebConversation(parsed, upstreamModel, nil, time.Now())
+			if err != nil {
+				return nil, err
+			}
+			payload, err = BuildClaudeWebCompletion(parsed.Body.Bytes(), upstreamModel)
+			if err != nil {
+				return nil, err
+			}
+			payload.Prompt = plan.Prompt
+			organizationID, err = s.claudeWebClient.ResolveOrganization(ctx, account, proxyURL)
+			if err != nil {
+				return nil, claudeWebForwardError(err)
+			}
+			conversationID, err = s.claudeWebClient.CreateConversation(ctx, account, proxyURL, organizationID)
+			if err != nil {
+				return nil, claudeWebForwardError(err)
+			}
+			createdFresh = true
+			response, err = s.claudeWebClient.Complete(ctx, account, proxyURL, organizationID, conversationID, payload)
+		}
+		if err != nil {
+			cleanupFreshConversation()
+			return nil, claudeWebForwardError(err)
+		}
 	}
 	defer response.Body.Close()
 	if parsed.OnUpstreamAccepted != nil {
@@ -112,8 +191,9 @@ func (s *GatewayService) forwardClaudeWebSession(
 	}
 
 	messageID := "msg_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	inputTokens := estimateClaudeWebTokens(utf8.RuneCountInString(payload.Prompt))
+	inputTokens := plan.NewInputTokensEstimated
 	var usage ClaudeUsage
+	assistantDigest := ""
 	firstTokenValue := int(time.Since(startTime).Milliseconds())
 	firstTokenMs := &firstTokenValue
 	clientDisconnect := false
@@ -123,10 +203,14 @@ func (s *GatewayService) forwardClaudeWebSession(
 		c.Header("Cache-Control", "no-cache")
 		c.Header("Connection", "keep-alive")
 		c.Header("X-Accel-Buffering", "no")
-		usage, err = TranslateClaudeWebSSE(response.Body, claudeWebFlushWriter{writer: c.Writer}, ClaudeWebStreamMeta{
+		usage, assistantDigest, err = TranslateClaudeWebSSEWithDigest(response.Body, claudeWebFlushWriter{writer: c.Writer}, ClaudeWebStreamMeta{
 			Model: parsed.Model, MessageID: messageID, InputTokens: inputTokens,
 		})
 		if err != nil {
+			if conversationCache != nil {
+				_ = conversationCache.DeleteClaudeWebConversation(ctx, conversationKey)
+			}
+			deleteClaudeWebConversationBestEffort(ctx, s.claudeWebClient, account, proxyURL, organizationID, conversationID)
 			if ctx.Err() != nil {
 				clientDisconnect = true
 			}
@@ -134,12 +218,55 @@ func (s *GatewayService) forwardClaudeWebSession(
 		}
 	} else {
 		var body []byte
-		body, usage, err = AggregateClaudeWebSSE(response.Body, parsed.Model, messageID, inputTokens)
+		body, usage, assistantDigest, err = AggregateClaudeWebSSEWithDigest(response.Body, parsed.Model, messageID, inputTokens)
 		if err != nil {
+			if conversationCache != nil {
+				_ = conversationCache.DeleteClaudeWebConversation(ctx, conversationKey)
+			}
+			deleteClaudeWebConversationBestEffort(ctx, s.claudeWebClient, account, proxyURL, organizationID, conversationID)
 			return nil, claudeWebForwardError(err)
 		}
 		c.Data(http.StatusOK, "application/json; charset=utf-8", body)
 		firstTokenMs = nil
+	}
+
+	if retainConversation {
+		now := time.Now()
+		createdAt := now
+		contextTokens := plan.NewInputTokensEstimated + usage.OutputTokens
+		if plan.Reused && state != nil {
+			createdAt = state.CreatedAt
+			if createdAt.IsZero() {
+				createdAt = now
+			}
+			contextTokens += state.ContextTokensEstimated
+		}
+		storedDigestChain := plan.DigestChain
+		if assistantDigest != "" {
+			storedDigestChain += "-" + assistantDigest
+		}
+		newState := ClaudeWebConversationState{
+			OrganizationID:         organizationID,
+			ConversationID:         conversationID,
+			ParentMessageUUID:      payload.TurnMessageUUIDs.AssistantMessageUUID,
+			Model:                  upstreamModel,
+			DigestChain:            storedDigestChain,
+			ContextTokensEstimated: contextTokens,
+			CreatedAt:              createdAt,
+			LastUsedAt:             now,
+			TTLSeconds:             int(plan.TTL.Seconds()),
+		}
+		saveCtx, cancelSave := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+		saveErr := saveClaudeWebConversationState(saveCtx, conversationCache, conversationKey, newState, plan.TTL)
+		cancelSave()
+		if saveErr != nil {
+			deleteCtx, cancelDelete := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+			_ = conversationCache.DeleteClaudeWebConversation(deleteCtx, conversationKey)
+			cancelDelete()
+			deleteClaudeWebConversationBestEffort(ctx, s.claudeWebClient, account, proxyURL, organizationID, conversationID)
+		}
+	} else {
+		cleanupFreshConversation()
 	}
 
 	return &ForwardResult{
@@ -151,6 +278,23 @@ func (s *GatewayService) forwardClaudeWebSession(
 		FirstTokenMs:     firstTokenMs,
 		ClientDisconnect: clientDisconnect,
 	}, nil
+}
+
+func deleteClaudeWebConversationBestEffort(ctx context.Context, client *ClaudeWebClient, account *Account, proxyURL, organizationID, conversationID string) {
+	if client == nil || account == nil || strings.TrimSpace(organizationID) == "" || strings.TrimSpace(conversationID) == "" {
+		return
+	}
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	_ = client.DeleteConversation(cleanupCtx, account, proxyURL, organizationID, conversationID)
+}
+
+func isClaudeWebConversationInvalid(err error) bool {
+	var upstreamErr *ClaudeWebHTTPError
+	if !errors.As(err, &upstreamErr) {
+		return false
+	}
+	return upstreamErr.StatusCode == http.StatusNotFound || upstreamErr.StatusCode == http.StatusGone
 }
 
 func (s *GatewayService) forwardClaudeWebCountTokens(c *gin.Context, parsed *ParsedRequest) error {

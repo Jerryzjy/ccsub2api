@@ -180,10 +180,11 @@ func (h *DashboardHandler) BackfillAggregation(c *gin.Context) {
 func (h *DashboardHandler) GetRealtimeMetrics(c *gin.Context) {
 	// Return mock data for now
 	response.Success(c, gin.H{
-		"active_requests":       0,
-		"requests_per_minute":   0,
-		"average_response_time": 0,
-		"error_rate":            0.0,
+		"active_requests":         0,
+		"requests_per_minute":     0,
+		"average_response_time":   0,
+		"error_rate":              0.0,
+		"claude_web_conversation": service.SnapshotClaudeWebConversationMetrics(),
 	})
 }
 

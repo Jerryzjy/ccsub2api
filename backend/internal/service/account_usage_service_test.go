@@ -157,6 +157,44 @@ func TestAccountUsageService_GetOpenAIUsage_DoesNotPromoteCodexExtraToRateLimit(
 	}
 }
 
+func TestAccountUsageService_GetUsage_WebSessionReturnsFiveHourAndSevenDayWindows(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().UTC().Truncate(time.Second)
+	fiveHourReset := now.Add(2 * time.Hour)
+	weeklyReset := now.Add(5 * 24 * time.Hour)
+	account := Account{
+		ID:               1601,
+		Platform:         PlatformAnthropic,
+		Type:             AccountTypeWebSession,
+		SessionWindowEnd: &fiveHourReset,
+		Extra: map[string]any{
+			"session_window_utilization": 0.35,
+			"quota_weekly_limit":         80.0,
+			"quota_weekly_used":          20.0,
+			"quota_weekly_reset_mode":    "fixed",
+			"quota_weekly_reset_at":      weeklyReset.Format(time.RFC3339),
+		},
+	}
+	svc := &AccountUsageService{
+		accountRepo: stubOpenAIAccountRepo{accounts: []Account{account}},
+	}
+
+	usage, err := svc.GetUsage(context.Background(), account.ID)
+	if err != nil {
+		t.Fatalf("GetUsage() error = %v", err)
+	}
+	if usage.FiveHour == nil || usage.FiveHour.Utilization != 35 {
+		t.Fatalf("FiveHour = %#v, want utilization 35", usage.FiveHour)
+	}
+	if usage.SevenDay == nil || usage.SevenDay.Utilization != 25 {
+		t.Fatalf("SevenDay = %#v, want utilization 25", usage.SevenDay)
+	}
+	if usage.SevenDay.ResetsAt == nil || !usage.SevenDay.ResetsAt.Equal(weeklyReset) {
+		t.Fatalf("SevenDay.ResetsAt = %v, want %v", usage.SevenDay.ResetsAt, weeklyReset)
+	}
+}
+
 func TestBuildCodexUsageProgressFromExtra_ZerosExpiredWindow(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
