@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildClaudeCookieOAuthInput } from '../claudeCookieOAuth'
+import { buildClaudeCookieOAuthInput, readClaudeCookieFile } from '../claudeCookieOAuth'
 
 describe('buildClaudeCookieOAuthInput', () => {
   it('treats a Netscape export as cookie content', () => {
@@ -23,5 +23,13 @@ describe('buildClaudeCookieOAuthInput', () => {
       cookie: '',
       session_key: 'sk-ant-sid-test'
     })
+  })
+})
+
+describe('readClaudeCookieFile', () => {
+  it('reads the Cookie export as text without transforming secrets', async () => {
+    const content = '.claude.ai\tTRUE\t/\tTRUE\t0\tsessionKey\tsecret-value'
+    const file = new File([content], 'cookies.txt', { type: 'text/plain' })
+    await expect(readClaudeCookieFile(file)).resolves.toBe(content)
   })
 })

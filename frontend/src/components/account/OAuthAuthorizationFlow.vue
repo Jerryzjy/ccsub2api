@@ -267,6 +267,21 @@
               {{ t('admin.accounts.oauth.cookieAutoAuthDesc') }}
             </p>
 
+            <div v-if="platform === 'anthropic'" class="mb-4">
+              <label class="mb-2 block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                {{ t('admin.accounts.oauth.cookieFile') }}
+              </label>
+              <input
+                type="file"
+                accept=".txt,text/plain"
+                class="input w-full text-sm"
+                @change="handleClaudeCookieFile"
+              />
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ cookieFileName || t('admin.accounts.oauth.cookieFileHint') }}
+              </p>
+            </div>
+
             <!-- sessionKey Input -->
             <div class="mb-4">
               <label
@@ -635,6 +650,7 @@ import { useClipboard } from '@/composables/useClipboard'
 import Icon from '@/components/icons/Icon.vue'
 import type { AddMethod, AuthInputMethod } from '@/composables/useAccountOAuth'
 import type { AccountPlatform } from '@/types'
+import { readClaudeCookieFile } from '@/components/account/claudeCookieOAuth'
 
 interface Props {
   addMethod: AddMethod
@@ -721,6 +737,7 @@ const oauthImportantNotice = computed(() => {
 const inputMethod = ref<AuthInputMethod>(props.showCookieOption ? 'manual' : 'manual')
 const authCodeInput = ref('')
 const sessionKeyInput = ref('')
+const cookieFileName = ref('')
 const refreshTokenInput = ref('')
 const sessionTokenInput = ref('')
 const codexSessionInput = ref('')
@@ -736,6 +753,9 @@ const { copied, copyToClipboard } = useClipboard()
 
 // Computed
 const parsedKeyCount = computed(() => {
+	if (sessionKeyInput.value.includes('\t') || /(^|;|\s)sessionKey=/.test(sessionKeyInput.value)) {
+		return sessionKeyInput.value.trim() ? 1 : 0
+	}
   return sessionKeyInput.value
     .split('\n')
     .map((k) => k.trim())
@@ -821,6 +841,14 @@ const handleCookieAuth = () => {
   }
 }
 
+const handleClaudeCookieFile = async (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  sessionKeyInput.value = await readClaudeCookieFile(file)
+  cookieFileName.value = file.name
+}
+
 const handleValidateRefreshToken = () => {
   if (refreshTokenInput.value.trim()) {
     if (inputMethod.value === 'mobile_refresh_token') {
@@ -852,6 +880,7 @@ defineExpose({
     oauthState.value = ''
     projectId.value = ''
     sessionKeyInput.value = ''
+    cookieFileName.value = ''
     refreshTokenInput.value = ''
     sessionTokenInput.value = ''
     codexSessionInput.value = ''

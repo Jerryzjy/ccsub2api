@@ -3776,6 +3776,8 @@ export default {
         cookieAutoAuth: 'Cookie Auto-Auth',
         cookieAutoAuthDesc:
           'Use claude.ai sessionKey to automatically complete OAuth authorization without manually opening browser.',
+        cookieFile: 'Cookie file (optional)',
+        cookieFileHint: 'Upload a Netscape Cookie .txt file, or paste a sessionKey below',
         sessionKey: 'sessionKey',
         keysCount: '{count} keys',
         batchCreateAccounts: 'Will batch create {count} accounts',
@@ -3790,7 +3792,7 @@ export default {
         step5: 'Find the row with key sessionKey',
         step6: 'Copy the Value',
         sessionKeyFormat: 'sessionKey usually starts with sk-ant-sid01-',
-        startAutoAuth: 'Start Auto-Auth',
+        startAutoAuth: 'Convert and create OAuth account',
         authorizing: 'Authorizing...',
         followSteps: 'Follow these steps to authorize your Claude account:',
         step1GenerateUrl: 'Click the button below to generate the authorization URL',

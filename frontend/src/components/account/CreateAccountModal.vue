@@ -3600,6 +3600,7 @@ import {
   applyInterceptWarmup,
   buildClaudeWebCredentials
 } from '@/components/account/credentialsBuilder'
+import { buildClaudeCookieOAuthInput } from '@/components/account/claudeCookieOAuth'
 import {
   createClaudeWebSafetyState,
   serializeClaudeWebSafety
@@ -5860,6 +5861,35 @@ const handleCookieAuth = async (sessionKey: string) => {
 
   try {
     const proxyConfig = form.proxy_id ? { proxy_id: form.proxy_id } : {}
+
+    if (addMethod.value === 'oauth') {
+      const credentialInput = buildClaudeCookieOAuthInput(sessionKey)
+      if (!credentialInput.cookie && !credentialInput.session_key) {
+        oauth.error.value = t('admin.accounts.oauth.pleaseEnterSessionKey')
+        return
+      }
+
+      await adminAPI.accounts.createClaudeCookieOAuth({
+        name: form.name,
+        notes: form.notes,
+        ...credentialInput,
+        ...proxyConfig,
+        group_ids: form.group_ids,
+        concurrency: form.concurrency,
+        load_factor: form.load_factor ?? undefined,
+        priority: form.priority,
+        rate_multiplier: form.rate_multiplier,
+        expires_at: form.expires_at,
+        auto_pause_on_expired: autoPauseOnExpired.value,
+        extra: {}
+      })
+
+      appStore.showSuccess(t('admin.accounts.oauth.successCreated', { count: 1 }))
+      emit('created')
+      handleClose()
+      return
+    }
+
     const keys = oauth.parseSessionKeys(sessionKey)
 
     if (keys.length === 0) {
@@ -5875,10 +5905,7 @@ const handleCookieAuth = async (sessionKey: string) => {
       return
     }
 
-    const endpoint =
-      addMethod.value === 'oauth'
-        ? '/admin/accounts/cookie-auth'
-        : '/admin/accounts/setup-token-cookie-auth'
+    const endpoint = '/admin/accounts/setup-token-cookie-auth'
 
     let successCount = 0
     let failedCount = 0
