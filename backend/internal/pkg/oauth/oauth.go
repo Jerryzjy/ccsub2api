@@ -29,6 +29,8 @@ const (
 	ScopeAPI = "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
 	// Scopes - Setup token (inference only)
 	ScopeInference = "user:inference"
+	// Scopes - Claude.ai account cookie conversion (minimal OAuth account access)
+	ScopeClaudeAI = "user:chat user:inference user:profile"
 
 	// Session TTL
 	SessionTTL = 30 * time.Minute

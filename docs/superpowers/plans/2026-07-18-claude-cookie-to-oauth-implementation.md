@@ -272,7 +272,7 @@ Run:
 
 ```powershell
 cd frontend
-npm run test -- src/components/account/__tests__/claudeCookieOAuth.spec.ts
+pnpm test -- src/components/account/__tests__/claudeCookieOAuth.spec.ts
 ```
 
 Expected: FAIL because the utility does not exist.
@@ -313,7 +313,7 @@ Run:
 
 ```powershell
 cd frontend
-npm run test -- src/components/account/__tests__/claudeCookieOAuth.spec.ts
+pnpm test -- src/components/account/__tests__/claudeCookieOAuth.spec.ts
 ```
 
 Expected: PASS.
@@ -353,7 +353,7 @@ Run:
 
 ```powershell
 cd frontend
-npm run test -- src/components/account/__tests__/CreateAccountModal.spec.ts
+pnpm test -- src/components/account/__tests__/CreateAccountModal.spec.ts
 ```
 
 Expected: FAIL because the modal still calls `/cookie-auth` and has no OAuth Cookie file input.
@@ -403,8 +403,8 @@ Run:
 
 ```powershell
 cd frontend
-npm run test -- src/components/account/__tests__/CreateAccountModal.spec.ts src/components/account/__tests__/claudeCookieOAuth.spec.ts
-npm run type-check
+pnpm test -- src/components/account/__tests__/CreateAccountModal.spec.ts src/components/account/__tests__/claudeCookieOAuth.spec.ts
+pnpm typecheck
 ```
 
 Expected: PASS.
@@ -444,8 +444,8 @@ Expected: PASS.
 
 ```powershell
 cd frontend
-npm run test -- src/components/account/__tests__/CreateAccountModal.spec.ts src/components/account/__tests__/claudeCookieOAuth.spec.ts
-npm run type-check
+pnpm test -- src/components/account/__tests__/CreateAccountModal.spec.ts src/components/account/__tests__/claudeCookieOAuth.spec.ts
+pnpm typecheck
 ```
 
 Expected: PASS.

@@ -357,6 +357,51 @@ func TestOAuthService_ExchangeCode_SetupToken(t *testing.T) {
 	}
 }
 
+func TestOAuthService_CookieAuth_ClaudeAIScope(t *testing.T) {
+	t.Parallel()
+
+	client := &mockClaudeOAuthClient{
+		getOrgUUIDFunc: func(ctx context.Context, sessionKey, proxyURL string) (string, error) {
+			if sessionKey != "session-key" {
+				t.Fatalf("sessionKey mismatch: got=%q", sessionKey)
+			}
+			return "org-1", nil
+		},
+		getAuthCodeFunc: func(ctx context.Context, sessionKey, orgUUID, scope, codeChallenge, state, proxyURL string) (string, error) {
+			if scope != oauth.ScopeClaudeAI {
+				t.Fatalf("scope mismatch: got=%q", scope)
+			}
+			return "auth-code", nil
+		},
+		exchangeCodeFunc: func(ctx context.Context, code, codeVerifier, state, proxyURL string, isSetupToken bool) (*oauth.TokenResponse, error) {
+			if isSetupToken {
+				t.Fatal("Claude.ai cookie OAuth must not request a setup token")
+			}
+			return &oauth.TokenResponse{
+				AccessToken:  "access-token",
+				RefreshToken: "refresh-token",
+				TokenType:    "Bearer",
+				ExpiresIn:    28800,
+				Scope:        oauth.ScopeClaudeAI,
+			}, nil
+		},
+	}
+
+	svc := NewOAuthService(&mockProxyRepoForOAuth{}, client)
+	defer svc.Stop()
+
+	tokenInfo, err := svc.CookieAuth(context.Background(), &CookieAuthInput{
+		SessionKey: "session-key",
+		Scope:      CookieAuthScopeClaudeAI,
+	})
+	if err != nil {
+		t.Fatalf("CookieAuth returned error: %v", err)
+	}
+	if tokenInfo.RefreshToken != "refresh-token" {
+		t.Fatalf("RefreshToken mismatch: got=%q", tokenInfo.RefreshToken)
+	}
+}
+
 func TestOAuthService_ExchangeCode_ClientError(t *testing.T) {
 	t.Parallel()
 

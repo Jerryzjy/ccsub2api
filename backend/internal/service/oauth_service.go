@@ -165,6 +165,8 @@ type CookieAuthInput struct {
 	Scope      string // "full" or "inference"
 }
 
+const CookieAuthScopeClaudeAI = "claude_ai"
+
 // CookieAuth performs OAuth using sessionKey (cookie-based auto-auth)
 func (s *OAuthService) CookieAuth(ctx context.Context, input *CookieAuthInput) (*TokenInfo, error) {
 	// Get proxy URL if specified
@@ -180,9 +182,12 @@ func (s *OAuthService) CookieAuth(ctx context.Context, input *CookieAuthInput) (
 	// Internal API call uses ScopeAPI (org:create_api_key not supported)
 	scope := oauth.ScopeAPI
 	isSetupToken := false
-	if input.Scope == "inference" {
+	switch input.Scope {
+	case "inference":
 		scope = oauth.ScopeInference
 		isSetupToken = true
+	case CookieAuthScopeClaudeAI:
+		scope = oauth.ScopeClaudeAI
 	}
 
 	// Step 1: Get organization info using sessionKey
