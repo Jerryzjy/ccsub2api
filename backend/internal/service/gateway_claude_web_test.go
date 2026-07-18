@@ -6,12 +6,51 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+type claudeWebConversationCacheStub struct {
+	GatewayCache
+	mu     sync.Mutex
+	values map[string][]byte
+}
+
+func (s *claudeWebConversationCacheStub) GetClaudeWebConversation(_ context.Context, key string) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]byte(nil), s.values[key]...), nil
+}
+
+func (s *claudeWebConversationCacheStub) SetClaudeWebConversation(_ context.Context, key string, value []byte, _ time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.values == nil {
+		s.values = make(map[string][]byte)
+	}
+	s.values[key] = append([]byte(nil), value...)
+	return nil
+}
+
+func (s *claudeWebConversationCacheStub) DeleteClaudeWebConversation(_ context.Context, key string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.values, key)
+	return nil
+}
+
+func (s *claudeWebConversationCacheStub) TryLockClaudeWebConversation(_ context.Context, _, _ string, _ time.Duration) (bool, error) {
+	return true, nil
+}
+
+func (s *claudeWebConversationCacheStub) UnlockClaudeWebConversation(_ context.Context, _, _ string) error {
+	return nil
+}
 
 func TestClassifyClaudeWebResponse(t *testing.T) {
 	require.Equal(t, ClaudeWebErrorExpired, ClassifyClaudeWebResponse(http.StatusUnauthorized, nil, nil))
@@ -117,6 +156,79 @@ func TestGatewayForwardClaudeWebSessionUsesWebTransport(t *testing.T) {
 	require.Equal(t, "/api/organizations/org-1/chat_conversations", transport.requests[0].URL.Path)
 	require.Equal(t, "/api/organizations/org-1/chat_conversations/conv-1/completion", transport.requests[1].URL.Path)
 	require.Equal(t, http.MethodDelete, transport.requests[2].Method)
+}
+
+func TestGatewayForwardClaudeWebSessionRecordsConversationCacheCreationAndRead(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	firstSSE := "event: content_block_delta\n" +
+		"data: {\"delta\":{\"type\":\"text_delta\",\"text\":\"first answer\"}}\n\n" +
+		"event: message_stop\ndata: {}\n\n"
+	secondSSE := "event: content_block_delta\n" +
+		"data: {\"delta\":{\"type\":\"text_delta\",\"text\":\"second answer\"}}\n\n" +
+		"event: message_stop\ndata: {}\n\n"
+	transport := &claudeWebTransportStub{responses: []*http.Response{
+		claudeWebTestResponse(http.StatusCreated, `{"uuid":"conv-cache"}`),
+		claudeWebTestResponse(http.StatusOK, firstSSE),
+		claudeWebTestResponse(http.StatusOK, secondSSE),
+	}}
+	cache := &claudeWebConversationCacheStub{values: make(map[string][]byte)}
+	service := &GatewayService{
+		cfg:             &config.Config{},
+		cache:           cache,
+		claudeWebClient: NewClaudeWebClient(transport),
+	}
+	account := &Account{
+		ID:       26,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeWebSession,
+		Credentials: map[string]any{
+			ClaudeWebCredentialCookie:         "sessionKey=test",
+			ClaudeWebCredentialOrganizationID: "org-1",
+		},
+	}
+
+	first := mustParseClaudeWebConversationRequest(t, `{
+		"model":"claude-sonnet-5","stream":false,
+		"system":[{"type":"text","text":"be concise","cache_control":{"type":"ephemeral"}}],
+		"messages":[{"role":"user","content":"first question"}]
+	}`)
+	first.SessionContext = &SessionContext{APIKeyID: 9, ClientIP: "127.0.0.1", UserAgent: "test"}
+	firstRecorder := httptest.NewRecorder()
+	firstCtx, _ := gin.CreateTestContext(firstRecorder)
+	firstCtx.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	firstResult, err := service.Forward(context.Background(), firstCtx, account, first)
+
+	require.NoError(t, err)
+	require.Zero(t, firstResult.Usage.InputTokens)
+	require.Greater(t, firstResult.Usage.CacheCreationInputTokens, 0)
+	require.Equal(t, firstResult.Usage.CacheCreationInputTokens, firstResult.Usage.CacheCreation5mTokens)
+	require.Zero(t, firstResult.Usage.CacheReadInputTokens)
+	require.Contains(t, firstRecorder.Body.String(), `"cache_creation_input_tokens":`)
+
+	second := mustParseClaudeWebConversationRequest(t, `{
+		"model":"claude-sonnet-5","stream":false,
+		"system":[{"type":"text","text":"be concise","cache_control":{"type":"ephemeral"}}],
+		"messages":[
+			{"role":"user","content":"first question"},
+			{"role":"assistant","content":"first answer"},
+			{"role":"user","content":"second question"}
+		]
+	}`)
+	second.SessionContext = &SessionContext{APIKeyID: 9, ClientIP: "127.0.0.1", UserAgent: "test"}
+	secondRecorder := httptest.NewRecorder()
+	secondCtx, _ := gin.CreateTestContext(secondRecorder)
+	secondCtx.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	secondResult, err := service.Forward(context.Background(), secondCtx, account, second)
+
+	require.NoError(t, err)
+	require.Zero(t, secondResult.Usage.InputTokens)
+	require.Greater(t, secondResult.Usage.CacheCreationInputTokens, 0)
+	require.Greater(t, secondResult.Usage.CacheReadInputTokens, 0)
+	require.Contains(t, secondRecorder.Body.String(), `"cache_read_input_tokens":`)
+	require.Len(t, transport.requests, 3)
+	require.Equal(t, "/api/organizations/org-1/chat_conversations/conv-cache/completion", transport.requests[2].URL.Path)
 }
 
 func TestGatewayForwardClaudeWebSessionReturnsFailoverError(t *testing.T) {

@@ -58,6 +58,30 @@ type ClaudeWebConversationPlan struct {
 	NewInputTokensEstimated    int
 }
 
+// ClaudeWebConversationUsage maps locally observed conversation reuse into the
+// standard Anthropic usage buckets. Claude Web does not return API prompt-cache
+// counters, so these values describe Sub2API's retained Web conversation:
+// newly retained context is a cache creation and previously retained context is
+// a cache read. When state cannot be retained, input remains ordinary input.
+func ClaudeWebConversationUsage(plan ClaudeWebConversationPlan, retained bool) ClaudeUsage {
+	if !retained {
+		return ClaudeUsage{InputTokens: plan.NewInputTokensEstimated}
+	}
+
+	usage := ClaudeUsage{
+		CacheCreationInputTokens: plan.NewInputTokensEstimated,
+	}
+	if plan.Reused {
+		usage.CacheReadInputTokens = plan.ReusedInputTokensEstimated
+	}
+	if plan.TTL >= claudeWebConversationMaxTTL {
+		usage.CacheCreation1hTokens = plan.NewInputTokensEstimated
+	} else {
+		usage.CacheCreation5mTokens = plan.NewInputTokensEstimated
+	}
+	return usage
+}
+
 // PlanClaudeWebConversation decides whether a request is a strict extension
 // of the conversation already stored upstream. A hit sends only the latest
 // user turn; a miss sends the complete flattened prompt and starts a fresh

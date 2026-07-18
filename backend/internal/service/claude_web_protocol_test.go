@@ -55,6 +55,33 @@ func TestTranslateClaudeWebSSE(t *testing.T) {
 	require.Contains(t, raw, "event: message_stop")
 }
 
+func TestTranslateClaudeWebSSEIncludesConversationCacheUsage(t *testing.T) {
+	input := "event: content_block_delta\n" +
+		"data: {\"delta\":{\"type\":\"text_delta\",\"text\":\"answer\"}}\n\n" +
+		"event: message_stop\ndata: {}\n\n"
+	var output bytes.Buffer
+
+	usage, err := TranslateClaudeWebSSE(
+		strings.NewReader(input),
+		&output,
+		ClaudeWebStreamMeta{
+			Model:                      "claude-sonnet-5",
+			MessageID:                  "msg-cache",
+			CacheCreationInputTokens:   9230,
+			CacheReadInputTokens:       86918,
+			CacheCreation5mInputTokens: 9230,
+		},
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, 9230, usage.CacheCreationInputTokens)
+	require.Equal(t, 86918, usage.CacheReadInputTokens)
+	require.Equal(t, 9230, usage.CacheCreation5mTokens)
+	require.Contains(t, output.String(), `"cache_creation_input_tokens":9230`)
+	require.Contains(t, output.String(), `"cache_read_input_tokens":86918`)
+	require.Contains(t, output.String(), `"ephemeral_5m_input_tokens":9230`)
+}
+
 func TestAggregateClaudeWebSSE(t *testing.T) {
 	input := "event: content_block_delta\n" +
 		"data: {\"delta\":{\"type\":\"text_delta\",\"text\":\"answer\"}}\n\n" +

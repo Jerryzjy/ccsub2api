@@ -191,7 +191,16 @@ func (s *GatewayService) forwardClaudeWebSession(
 	}
 
 	messageID := "msg_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	inputTokens := plan.NewInputTokensEstimated
+	initialUsage := ClaudeWebConversationUsage(plan, retainConversation)
+	streamMeta := ClaudeWebStreamMeta{
+		Model:                      parsed.Model,
+		MessageID:                  messageID,
+		InputTokens:                initialUsage.InputTokens,
+		CacheCreationInputTokens:   initialUsage.CacheCreationInputTokens,
+		CacheReadInputTokens:       initialUsage.CacheReadInputTokens,
+		CacheCreation5mInputTokens: initialUsage.CacheCreation5mTokens,
+		CacheCreation1hInputTokens: initialUsage.CacheCreation1hTokens,
+	}
 	var usage ClaudeUsage
 	assistantDigest := ""
 	firstTokenValue := int(time.Since(startTime).Milliseconds())
@@ -203,9 +212,7 @@ func (s *GatewayService) forwardClaudeWebSession(
 		c.Header("Cache-Control", "no-cache")
 		c.Header("Connection", "keep-alive")
 		c.Header("X-Accel-Buffering", "no")
-		usage, assistantDigest, err = TranslateClaudeWebSSEWithDigest(response.Body, claudeWebFlushWriter{writer: c.Writer}, ClaudeWebStreamMeta{
-			Model: parsed.Model, MessageID: messageID, InputTokens: inputTokens,
-		})
+		usage, assistantDigest, err = TranslateClaudeWebSSEWithDigest(response.Body, claudeWebFlushWriter{writer: c.Writer}, streamMeta)
 		if err != nil {
 			if conversationCache != nil {
 				_ = conversationCache.DeleteClaudeWebConversation(ctx, conversationKey)
@@ -218,7 +225,7 @@ func (s *GatewayService) forwardClaudeWebSession(
 		}
 	} else {
 		var body []byte
-		body, usage, assistantDigest, err = AggregateClaudeWebSSEWithDigest(response.Body, parsed.Model, messageID, inputTokens)
+		body, usage, assistantDigest, err = AggregateClaudeWebSSEWithDigestMeta(response.Body, streamMeta)
 		if err != nil {
 			if conversationCache != nil {
 				_ = conversationCache.DeleteClaudeWebConversation(ctx, conversationKey)

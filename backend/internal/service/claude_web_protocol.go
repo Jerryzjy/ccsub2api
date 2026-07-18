@@ -182,9 +182,13 @@ func BuildClaudeWebCompletion(body []byte, model string) (ClaudeWebCompletionReq
 }
 
 type ClaudeWebStreamMeta struct {
-	Model       string
-	MessageID   string
-	InputTokens int
+	Model                      string
+	MessageID                  string
+	InputTokens                int
+	CacheCreationInputTokens   int
+	CacheReadInputTokens       int
+	CacheCreation5mInputTokens int
+	CacheCreation1hInputTokens int
 }
 
 type claudeWebStreamPayload struct {
@@ -210,7 +214,7 @@ func TranslateClaudeWebSSEWithDigest(src io.Reader, dst io.Writer, meta ClaudeWe
 	if strings.TrimSpace(meta.MessageID) == "" {
 		meta.MessageID = "msg_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	}
-	usage := ClaudeUsage{InputTokens: meta.InputTokens}
+	usage := claudeWebUsageFromStreamMeta(meta)
 	var outputText strings.Builder
 	started := false
 	start := func() error {
@@ -223,7 +227,7 @@ func TranslateClaudeWebSSEWithDigest(src io.Reader, dst io.Writer, meta ClaudeWe
 				"id": meta.MessageID, "type": "message", "role": "assistant",
 				"content": []any{}, "model": meta.Model,
 				"stop_reason": nil, "stop_sequence": nil,
-				"usage": map[string]int{"input_tokens": usage.InputTokens, "output_tokens": 0},
+				"usage": claudeWebUsagePayload(usage, 0),
 			},
 		}); err != nil {
 			return err
@@ -301,6 +305,14 @@ func AggregateClaudeWebSSE(src io.Reader, model, messageID string, inputTokens i
 }
 
 func AggregateClaudeWebSSEWithDigest(src io.Reader, model, messageID string, inputTokens int) ([]byte, ClaudeUsage, string, error) {
+	return AggregateClaudeWebSSEWithDigestMeta(src, ClaudeWebStreamMeta{
+		Model: model, MessageID: messageID, InputTokens: inputTokens,
+	})
+}
+
+func AggregateClaudeWebSSEWithDigestMeta(src io.Reader, meta ClaudeWebStreamMeta) ([]byte, ClaudeUsage, string, error) {
+	model := meta.Model
+	messageID := meta.MessageID
 	if strings.TrimSpace(messageID) == "" {
 		messageID = "msg_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	}
@@ -326,10 +338,8 @@ func AggregateClaudeWebSSEWithDigest(src io.Reader, model, messageID string, inp
 		text.WriteString(delta)
 		return nil
 	})
-	usage := ClaudeUsage{
-		InputTokens:  inputTokens,
-		OutputTokens: estimateClaudeWebTokens(utf8.RuneCountInString(text.String())),
-	}
+	usage := claudeWebUsageFromStreamMeta(meta)
+	usage.OutputTokens = estimateClaudeWebTokens(utf8.RuneCountInString(text.String()))
 	if err != nil {
 		return nil, usage, "", err
 	}
@@ -337,12 +347,35 @@ func AggregateClaudeWebSSEWithDigest(src io.Reader, model, messageID string, inp
 		"id": messageID, "type": "message", "role": "assistant", "model": model,
 		"content":     []map[string]string{{"type": "text", "text": text.String()}},
 		"stop_reason": "end_turn", "stop_sequence": nil,
-		"usage": map[string]int{"input_tokens": usage.InputTokens, "output_tokens": usage.OutputTokens},
+		"usage": claudeWebUsagePayload(usage, usage.OutputTokens),
 	})
 	if err != nil {
 		return nil, usage, "", errors.New("encode Claude Web response")
 	}
 	return body, usage, claudeWebAssistantDigest(text.String()), nil
+}
+
+func claudeWebUsageFromStreamMeta(meta ClaudeWebStreamMeta) ClaudeUsage {
+	return ClaudeUsage{
+		InputTokens:              meta.InputTokens,
+		CacheCreationInputTokens: meta.CacheCreationInputTokens,
+		CacheReadInputTokens:     meta.CacheReadInputTokens,
+		CacheCreation5mTokens:    meta.CacheCreation5mInputTokens,
+		CacheCreation1hTokens:    meta.CacheCreation1hInputTokens,
+	}
+}
+
+func claudeWebUsagePayload(usage ClaudeUsage, outputTokens int) map[string]any {
+	return map[string]any{
+		"input_tokens":                usage.InputTokens,
+		"cache_creation_input_tokens": usage.CacheCreationInputTokens,
+		"cache_read_input_tokens":     usage.CacheReadInputTokens,
+		"cache_creation": map[string]int{
+			"ephemeral_5m_input_tokens": usage.CacheCreation5mTokens,
+			"ephemeral_1h_input_tokens": usage.CacheCreation1hTokens,
+		},
+		"output_tokens": outputTokens,
+	}
 }
 
 func claudeWebAssistantDigest(text string) string {

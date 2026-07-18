@@ -145,3 +145,49 @@ func TestPlanClaudeWebConversation_ExpiredStateRebuilds(t *testing.T) {
 	require.False(t, plan.Reused)
 	require.Equal(t, "ttl_expired", plan.MissReason)
 }
+
+func TestClaudeWebConversationUsage_RetainedFirstTurnCreatesFiveMinuteCache(t *testing.T) {
+	plan := ClaudeWebConversationPlan{
+		NewInputTokensEstimated: 10503,
+		TTL:                     5 * time.Minute,
+	}
+
+	usage := ClaudeWebConversationUsage(plan, true)
+
+	require.Zero(t, usage.InputTokens)
+	require.Equal(t, 10503, usage.CacheCreationInputTokens)
+	require.Equal(t, 10503, usage.CacheCreation5mTokens)
+	require.Zero(t, usage.CacheCreation1hTokens)
+	require.Zero(t, usage.CacheReadInputTokens)
+}
+
+func TestClaudeWebConversationUsage_RetainedFollowUpReportsCacheReadAndOneHourCreation(t *testing.T) {
+	plan := ClaudeWebConversationPlan{
+		Reused:                     true,
+		ReusedInputTokensEstimated: 86918,
+		NewInputTokensEstimated:    9230,
+		TTL:                        time.Hour,
+	}
+
+	usage := ClaudeWebConversationUsage(plan, true)
+
+	require.Zero(t, usage.InputTokens)
+	require.Equal(t, 9230, usage.CacheCreationInputTokens)
+	require.Zero(t, usage.CacheCreation5mTokens)
+	require.Equal(t, 9230, usage.CacheCreation1hTokens)
+	require.Equal(t, 86918, usage.CacheReadInputTokens)
+}
+
+func TestClaudeWebConversationUsage_FallbackKeepsOrdinaryInput(t *testing.T) {
+	plan := ClaudeWebConversationPlan{
+		ReusedInputTokensEstimated: 86918,
+		NewInputTokensEstimated:    10503,
+		TTL:                        5 * time.Minute,
+	}
+
+	usage := ClaudeWebConversationUsage(plan, false)
+
+	require.Equal(t, 10503, usage.InputTokens)
+	require.Zero(t, usage.CacheCreationInputTokens)
+	require.Zero(t, usage.CacheReadInputTokens)
+}
