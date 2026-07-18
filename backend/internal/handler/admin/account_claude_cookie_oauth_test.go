@@ -15,10 +15,12 @@ import (
 )
 
 type claudeCookieOAuthClientStub struct {
-	scope string
+	scope      string
+	sessionKey string
 }
 
-func (s *claudeCookieOAuthClientStub) GetOrganizationUUID(context.Context, string, string) (string, error) {
+func (s *claudeCookieOAuthClientStub) GetOrganizationUUID(_ context.Context, sessionKey, _ string) (string, error) {
+	s.sessionKey = sessionKey
 	return "org-1", nil
 }
 
@@ -65,6 +67,7 @@ func TestAccountHandlerCreateClaudeCookieOAuthFromSessionKey(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 	require.Equal(t, oauth.ScopeClaudeAI, oauthClient.scope)
+	require.Equal(t, "session-secret", oauthClient.sessionKey)
 	require.Len(t, adminSvc.createdAccounts, 1)
 	created := adminSvc.createdAccounts[0]
 	require.Equal(t, service.PlatformAnthropic, created.Platform)
@@ -75,4 +78,28 @@ func TestAccountHandlerCreateClaudeCookieOAuthFromSessionKey(t *testing.T) {
 	require.NotContains(t, recorder.Body.String(), "session-secret")
 	require.NotContains(t, recorder.Body.String(), "access-secret")
 	require.NotContains(t, recorder.Body.String(), "refresh-secret")
+}
+
+func TestAccountHandlerCreateClaudeCookieOAuthFromNetscapeCookie(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	adminSvc := newStubAdminService()
+	oauthClient := &claudeCookieOAuthClientStub{}
+	oauthSvc := service.NewOAuthService(nil, oauthClient)
+	defer oauthSvc.Stop()
+	handler := NewAccountHandler(adminSvc, oauthSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := gin.New()
+	router.POST("/api/v1/admin/accounts/claude-cookie-oauth", handler.CreateClaudeCookieOAuth)
+
+	cookie := ".claude.ai\tTRUE\t/\tTRUE\t4102444800\tsessionKey\tcookie-session-secret"
+	body, err := json.Marshal(map[string]any{"name": "Cookie Account", "cookie": cookie})
+	require.NoError(t, err)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/claude-cookie-oauth", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	require.Equal(t, "cookie-session-secret", oauthClient.sessionKey)
+	require.Len(t, adminSvc.createdAccounts, 1)
+	require.NotContains(t, recorder.Body.String(), "cookie-session-secret")
 }
