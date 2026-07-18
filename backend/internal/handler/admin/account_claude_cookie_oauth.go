@@ -46,6 +46,7 @@ func (h *AccountHandler) CreateClaudeCookieOAuth(c *gin.Context) {
 	}
 
 	sessionKey := strings.TrimSpace(req.SessionKey)
+	cookieHeader := ""
 	if strings.TrimSpace(req.Cookie) != "" {
 		normalized, err := service.NormalizeClaudeWebCookie(req.Cookie, time.Now())
 		if err != nil {
@@ -55,6 +56,7 @@ func (h *AccountHandler) CreateClaudeCookieOAuth(c *gin.Context) {
 		if normalized.SessionKey != "" {
 			sessionKey = normalized.SessionKey
 		}
+		cookieHeader = normalized.Header
 	}
 	if sessionKey == "" {
 		response.BadRequest(c, "Cookie or sessionKey is required")
@@ -62,11 +64,28 @@ func (h *AccountHandler) CreateClaudeCookieOAuth(c *gin.Context) {
 	}
 
 	tokenInfo, err := h.oauthService.CookieAuth(c.Request.Context(), &service.CookieAuthInput{
-		SessionKey: sessionKey,
-		ProxyID:    req.ProxyID,
-		Scope:      service.CookieAuthScopeClaudeAI,
+		SessionKey:   sessionKey,
+		CookieHeader: cookieHeader,
+		ProxyID:      req.ProxyID,
+		Scope:        service.CookieAuthScopeClaudeAI,
 	})
 	if err != nil {
+		var cookieAuthErr *service.CookieAuthError
+		if errors.As(err, &cookieAuthErr) {
+			message := map[string]string{
+				service.CookieAuthStageSessionValidation: "Claude session validation failed",
+				service.CookieAuthStagePreparation:       "Claude OAuth request preparation failed",
+				service.CookieAuthStageAuthorization:     "Claude OAuth authorization was rejected",
+				service.CookieAuthStageTokenExchange:     "Claude OAuth token exchange failed",
+			}[cookieAuthErr.Stage]
+			if message == "" {
+				message = "Claude Cookie OAuth failed"
+			}
+			response.ErrorWithDetails(c, 400, message, "claude_cookie_oauth_failed", map[string]string{
+				"stage": cookieAuthErr.Stage,
+			})
+			return
+		}
 		response.ErrorFrom(c, err)
 		return
 	}

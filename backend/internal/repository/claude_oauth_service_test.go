@@ -21,12 +21,13 @@ type ClaudeOAuthServiceSuite struct {
 
 // requestCapture holds captured request data for assertions in the main goroutine.
 type requestCapture struct {
-	path        string
-	method      string
-	cookies     []*http.Cookie
-	body        []byte
-	bodyJSON    map[string]any
-	contentType string
+	path         string
+	method       string
+	cookies      []*http.Cookie
+	cookieHeader string
+	body         []byte
+	bodyJSON     map[string]any
+	contentType  string
 }
 
 func newTestReqClient(rt http.RoundTripper) *req.Client {
@@ -53,9 +54,8 @@ func (s *ClaudeOAuthServiceSuite) TestGetOrganizationUUID() {
 			wantUUID: "org-1",
 			validate: func(captured requestCapture) {
 				require.Equal(s.T(), "/api/organizations", captured.path, "unexpected path")
-				require.Len(s.T(), captured.cookies, 1, "expected 1 cookie")
-				require.Equal(s.T(), "sessionKey", captured.cookies[0].Name)
-				require.Equal(s.T(), "sess", captured.cookies[0].Value)
+				require.Contains(s.T(), captured.cookieHeader, "__ssid=security")
+				require.Contains(s.T(), captured.cookieHeader, "sessionKey=sess")
 			},
 		},
 		{
@@ -84,6 +84,7 @@ func (s *ClaudeOAuthServiceSuite) TestGetOrganizationUUID() {
 			rt := newInProcessTransport(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				captured.path = r.URL.Path
 				captured.cookies = r.Cookies()
+				captured.cookieHeader = r.Header.Get("Cookie")
 				tt.handler(w, r)
 			}), nil)
 
@@ -93,7 +94,7 @@ func (s *ClaudeOAuthServiceSuite) TestGetOrganizationUUID() {
 			s.client.baseURL = "http://in-process"
 			s.client.clientFactory = func(string) (*req.Client, error) { return newTestReqClient(rt), nil }
 
-			got, err := s.client.GetOrganizationUUID(context.Background(), "sess", "")
+			got, err := s.client.GetOrganizationUUID(context.Background(), "sess", "__ssid=security; sessionKey=sess", "")
 
 			if tt.wantErr {
 				require.Error(s.T(), err)
@@ -132,8 +133,8 @@ func (s *ClaudeOAuthServiceSuite) TestGetAuthorizationCode() {
 			validate: func(captured requestCapture) {
 				require.True(s.T(), strings.HasPrefix(captured.path, "/v1/oauth/") && strings.HasSuffix(captured.path, "/authorize"), "unexpected path: %s", captured.path)
 				require.Equal(s.T(), http.MethodPost, captured.method, "expected POST")
-				require.Len(s.T(), captured.cookies, 1, "expected 1 cookie")
-				require.Equal(s.T(), "sess", captured.cookies[0].Value)
+				require.Contains(s.T(), captured.cookieHeader, "__ssid=security")
+				require.Contains(s.T(), captured.cookieHeader, "sessionKey=sess")
 				require.Equal(s.T(), "org-1", captured.bodyJSON["organization_uuid"])
 				require.Equal(s.T(), oauth.ClientID, captured.bodyJSON["client_id"])
 				require.Equal(s.T(), oauth.RedirectURI, captured.bodyJSON["redirect_uri"])
@@ -160,6 +161,7 @@ func (s *ClaudeOAuthServiceSuite) TestGetAuthorizationCode() {
 				captured.path = r.URL.Path
 				captured.method = r.Method
 				captured.cookies = r.Cookies()
+				captured.cookieHeader = r.Header.Get("Cookie")
 				captured.body, _ = io.ReadAll(r.Body)
 				_ = json.Unmarshal(captured.body, &captured.bodyJSON)
 				tt.handler(w, r)
@@ -171,7 +173,7 @@ func (s *ClaudeOAuthServiceSuite) TestGetAuthorizationCode() {
 			s.client.baseURL = "http://in-process"
 			s.client.clientFactory = func(string) (*req.Client, error) { return newTestReqClient(rt), nil }
 
-			code, err := s.client.GetAuthorizationCode(context.Background(), "sess", "org-1", oauth.ScopeInference, "cc", "st", "")
+			code, err := s.client.GetAuthorizationCode(context.Background(), "sess", "__ssid=security; sessionKey=sess", "org-1", oauth.ScopeInference, "cc", "st", "")
 
 			if tt.wantErr {
 				require.Error(s.T(), err)
