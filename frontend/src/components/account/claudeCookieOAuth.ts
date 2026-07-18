@@ -22,3 +22,10 @@ export async function readClaudeCookieFile(file: File): Promise<string> {
     reader.readAsText(file)
   })
 }
+
+export function formatClaudeCookieOAuthError(error: any, fallback: string): string {
+  return error?.response?.data?.detail
+    || error?.response?.data?.message
+    || error?.message
+    || fallback
+}

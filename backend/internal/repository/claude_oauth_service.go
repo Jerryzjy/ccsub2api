@@ -32,7 +32,7 @@ type claudeOAuthService struct {
 	clientFactory func(proxyURL string) (*req.Client, error)
 }
 
-func (s *claudeOAuthService) GetOrganizationUUID(ctx context.Context, sessionKey, proxyURL string) (string, error) {
+func (s *claudeOAuthService) GetOrganizationUUID(ctx context.Context, sessionKey, cookieHeader, proxyURL string) (string, error) {
 	client, err := s.clientFactory(proxyURL)
 	if err != nil {
 		return "", fmt.Errorf("create HTTP client: %w", err)
@@ -47,14 +47,11 @@ func (s *claudeOAuthService) GetOrganizationUUID(ctx context.Context, sessionKey
 	targetURL := s.baseURL + "/api/organizations"
 	logger.LegacyPrintf("repository.claude_oauth", "[OAuth] Step 1: Getting organization UUID from %s", targetURL)
 
-	resp, err := client.R().
+	request := client.R().
 		SetContext(ctx).
-		SetCookies(&http.Cookie{
-			Name:  "sessionKey",
-			Value: sessionKey,
-		}).
-		SetSuccessResult(&orgs).
-		Get(targetURL)
+		SetSuccessResult(&orgs)
+	setClaudeOAuthCookies(request, sessionKey, cookieHeader)
+	resp, err := request.Get(targetURL)
 
 	if err != nil {
 		logger.LegacyPrintf("repository.claude_oauth", "[OAuth] Step 1 FAILED - Request error: %v", err)
@@ -91,7 +88,7 @@ func (s *claudeOAuthService) GetOrganizationUUID(ctx context.Context, sessionKey
 	return orgs[0].UUID, nil
 }
 
-func (s *claudeOAuthService) GetAuthorizationCode(ctx context.Context, sessionKey, orgUUID, scope, codeChallenge, state, proxyURL string) (string, error) {
+func (s *claudeOAuthService) GetAuthorizationCode(ctx context.Context, sessionKey, cookieHeader, orgUUID, scope, codeChallenge, state, proxyURL string) (string, error) {
 	client, err := s.clientFactory(proxyURL)
 	if err != nil {
 		return "", fmt.Errorf("create HTTP client: %w", err)
@@ -118,12 +115,8 @@ func (s *claudeOAuthService) GetAuthorizationCode(ctx context.Context, sessionKe
 		RedirectURI string `json:"redirect_uri"`
 	}
 
-	resp, err := client.R().
+	request := client.R().
 		SetContext(ctx).
-		SetCookies(&http.Cookie{
-			Name:  "sessionKey",
-			Value: sessionKey,
-		}).
 		SetHeader("Accept", "application/json").
 		SetHeader("Accept-Language", "en-US,en;q=0.9").
 		SetHeader("Cache-Control", "no-cache").
@@ -131,8 +124,9 @@ func (s *claudeOAuthService) GetAuthorizationCode(ctx context.Context, sessionKe
 		SetHeader("Referer", "https://claude.ai/new").
 		SetHeader("Content-Type", "application/json").
 		SetBody(reqBody).
-		SetSuccessResult(&result).
-		Post(authURL)
+		SetSuccessResult(&result)
+	setClaudeOAuthCookies(request, sessionKey, cookieHeader)
+	resp, err := request.Post(authURL)
 
 	if err != nil {
 		logger.LegacyPrintf("repository.claude_oauth", "[OAuth] Step 2 FAILED - Request error: %v", err)
@@ -169,6 +163,14 @@ func (s *claudeOAuthService) GetAuthorizationCode(ctx context.Context, sessionKe
 
 	logger.LegacyPrintf("repository.claude_oauth", "[OAuth] Step 2 SUCCESS - Got authorization code")
 	return fullCode, nil
+}
+
+func setClaudeOAuthCookies(request *req.Request, sessionKey, cookieHeader string) {
+	if strings.TrimSpace(cookieHeader) != "" {
+		request.SetHeader("Cookie", cookieHeader)
+		return
+	}
+	request.SetCookies(&http.Cookie{Name: "sessionKey", Value: sessionKey})
 }
 
 func (s *claudeOAuthService) ExchangeCodeForToken(ctx context.Context, code, codeVerifier, state, proxyURL string, isSetupToken bool) (*oauth.TokenResponse, error) {

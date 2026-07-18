@@ -3600,7 +3600,10 @@ import {
   applyInterceptWarmup,
   buildClaudeWebCredentials
 } from '@/components/account/credentialsBuilder'
-import { buildClaudeCookieOAuthInput } from '@/components/account/claudeCookieOAuth'
+import {
+  buildClaudeCookieOAuthInput,
+  formatClaudeCookieOAuthError
+} from '@/components/account/claudeCookieOAuth'
 import {
   createClaudeWebSafetyState,
   serializeClaudeWebSafety
@@ -6065,7 +6068,10 @@ const handleCookieAuth = async (sessionKey: string) => {
       oauth.error.value = errors.join('\n')
     }
   } catch (error: any) {
-    oauth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.cookieAuthFailed')
+    oauth.error.value = formatClaudeCookieOAuthError(
+      error,
+      t('admin.accounts.oauth.cookieAuthFailed')
+    )
   } finally {
     oauth.loading.value = false
   }

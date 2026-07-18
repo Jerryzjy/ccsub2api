@@ -19,8 +19,8 @@ type OpenAIOAuthClient interface {
 
 // ClaudeOAuthClient handles HTTP requests for Claude OAuth flows
 type ClaudeOAuthClient interface {
-	GetOrganizationUUID(ctx context.Context, sessionKey, proxyURL string) (string, error)
-	GetAuthorizationCode(ctx context.Context, sessionKey, orgUUID, scope, codeChallenge, state, proxyURL string) (string, error)
+	GetOrganizationUUID(ctx context.Context, sessionKey, cookieHeader, proxyURL string) (string, error)
+	GetAuthorizationCode(ctx context.Context, sessionKey, cookieHeader, orgUUID, scope, codeChallenge, state, proxyURL string) (string, error)
 	ExchangeCodeForToken(ctx context.Context, code, codeVerifier, state, proxyURL string, isSetupToken bool) (*oauth.TokenResponse, error)
 	RefreshToken(ctx context.Context, refreshToken, proxyURL string) (*oauth.TokenResponse, error)
 }
@@ -160,12 +160,33 @@ func (s *OAuthService) ExchangeCode(ctx context.Context, input *ExchangeCodeInpu
 
 // CookieAuthInput represents the input for cookie-based authentication
 type CookieAuthInput struct {
-	SessionKey string
-	ProxyID    *int64
-	Scope      string // "full" or "inference"
+	SessionKey   string
+	CookieHeader string
+	ProxyID      *int64
+	Scope        string // "full" or "inference"
 }
 
 const CookieAuthScopeClaudeAI = "claude_ai"
+
+const (
+	CookieAuthStageSessionValidation = "session_validation"
+	CookieAuthStagePreparation       = "preparation"
+	CookieAuthStageAuthorization     = "authorization"
+	CookieAuthStageTokenExchange     = "token_exchange"
+)
+
+// CookieAuthError identifies the safe stage where Cookie OAuth failed while
+// retaining the underlying error for server-side diagnostics only.
+type CookieAuthError struct {
+	Stage string
+	Err   error
+}
+
+func (e *CookieAuthError) Error() string {
+	return fmt.Sprintf("claude cookie OAuth failed at %s: %v", e.Stage, e.Err)
+}
+
+func (e *CookieAuthError) Unwrap() error { return e.Err }
 
 // CookieAuth performs OAuth using sessionKey (cookie-based auto-auth)
 func (s *OAuthService) CookieAuth(ctx context.Context, input *CookieAuthInput) (*TokenInfo, error) {
@@ -191,33 +212,33 @@ func (s *OAuthService) CookieAuth(ctx context.Context, input *CookieAuthInput) (
 	}
 
 	// Step 1: Get organization info using sessionKey
-	orgUUID, err := s.getOrganizationUUID(ctx, input.SessionKey, proxyURL)
+	orgUUID, err := s.getOrganizationUUID(ctx, input.SessionKey, input.CookieHeader, proxyURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get organization info: %w", err)
+		return nil, &CookieAuthError{Stage: CookieAuthStageSessionValidation, Err: err}
 	}
 
 	// Step 2: Generate PKCE values
 	codeVerifier, err := oauth.GenerateCodeVerifier()
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate code verifier: %w", err)
+		return nil, &CookieAuthError{Stage: CookieAuthStagePreparation, Err: err}
 	}
 	codeChallenge := oauth.GenerateCodeChallenge(codeVerifier)
 
 	state, err := oauth.GenerateState()
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate state: %w", err)
+		return nil, &CookieAuthError{Stage: CookieAuthStagePreparation, Err: err}
 	}
 
 	// Step 3: Get authorization code using cookie
-	authCode, err := s.getAuthorizationCode(ctx, input.SessionKey, orgUUID, scope, codeChallenge, state, proxyURL)
+	authCode, err := s.getAuthorizationCode(ctx, input.SessionKey, input.CookieHeader, orgUUID, scope, codeChallenge, state, proxyURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get authorization code: %w", err)
+		return nil, &CookieAuthError{Stage: CookieAuthStageAuthorization, Err: err}
 	}
 
 	// Step 4: Exchange code for token
 	tokenInfo, err := s.exchangeCodeForToken(ctx, authCode, codeVerifier, state, proxyURL, isSetupToken)
 	if err != nil {
-		return nil, fmt.Errorf("failed to exchange code: %w", err)
+		return nil, &CookieAuthError{Stage: CookieAuthStageTokenExchange, Err: err}
 	}
 
 	// Ensure org_uuid is set (from step 1 if not from token response)
@@ -230,13 +251,13 @@ func (s *OAuthService) CookieAuth(ctx context.Context, input *CookieAuthInput) (
 }
 
 // getOrganizationUUID gets the organization UUID from claude.ai using sessionKey
-func (s *OAuthService) getOrganizationUUID(ctx context.Context, sessionKey, proxyURL string) (string, error) {
-	return s.oauthClient.GetOrganizationUUID(ctx, sessionKey, proxyURL)
+func (s *OAuthService) getOrganizationUUID(ctx context.Context, sessionKey, cookieHeader, proxyURL string) (string, error) {
+	return s.oauthClient.GetOrganizationUUID(ctx, sessionKey, cookieHeader, proxyURL)
 }
 
 // getAuthorizationCode gets the authorization code using sessionKey
-func (s *OAuthService) getAuthorizationCode(ctx context.Context, sessionKey, orgUUID, scope, codeChallenge, state, proxyURL string) (string, error) {
-	return s.oauthClient.GetAuthorizationCode(ctx, sessionKey, orgUUID, scope, codeChallenge, state, proxyURL)
+func (s *OAuthService) getAuthorizationCode(ctx context.Context, sessionKey, cookieHeader, orgUUID, scope, codeChallenge, state, proxyURL string) (string, error) {
+	return s.oauthClient.GetAuthorizationCode(ctx, sessionKey, cookieHeader, orgUUID, scope, codeChallenge, state, proxyURL)
 }
 
 // exchangeCodeForToken exchanges authorization code for tokens

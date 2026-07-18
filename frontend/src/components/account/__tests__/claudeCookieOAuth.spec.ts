@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { buildClaudeCookieOAuthInput, readClaudeCookieFile } from '../claudeCookieOAuth'
+import {
+  buildClaudeCookieOAuthInput,
+  formatClaudeCookieOAuthError,
+  readClaudeCookieFile
+} from '../claudeCookieOAuth'
 
 describe('buildClaudeCookieOAuthInput', () => {
   it('treats a Netscape export as cookie content', () => {
@@ -31,5 +35,17 @@ describe('readClaudeCookieFile', () => {
     const content = '.claude.ai\tTRUE\t/\tTRUE\t0\tsessionKey\tsecret-value'
     const file = new File([content], 'cookies.txt', { type: 'text/plain' })
     await expect(readClaudeCookieFile(file)).resolves.toBe(content)
+  })
+})
+
+describe('formatClaudeCookieOAuthError', () => {
+  it('uses the normalized API client message', () => {
+    expect(formatClaudeCookieOAuthError({ message: 'Claude OAuth authorization was rejected' }, 'fallback'))
+      .toBe('Claude OAuth authorization was rejected')
+  })
+
+  it('uses the response envelope message before the fallback', () => {
+    expect(formatClaudeCookieOAuthError({ response: { data: { message: 'Session validation failed' } } }, 'fallback'))
+      .toBe('Session validation failed')
   })
 })
