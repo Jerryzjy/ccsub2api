@@ -380,15 +380,15 @@ func (s *AccountTestService) testClaudeWebAccountConnection(c *gin.Context, ctx 
 
 func (s *AccountTestService) processClaudeWebTestStream(c *gin.Context, body io.Reader) error {
 	err := scanClaudeWebSSE(body, func(event string, data []byte) error {
-		if event == "error" {
-			return errors.New("Claude Web stream error")
-		}
 		var payload claudeWebStreamPayload
 		if err := json.Unmarshal(data, &payload); err != nil {
+			if event == "error" {
+				return &ClaudeWebStreamError{Kind: ClaudeWebErrorUpstream}
+			}
 			return nil
 		}
-		if payload.Type == "error" {
-			return errors.New("Claude Web stream error")
+		if event == "error" || payload.Type == "error" {
+			return newClaudeWebStreamError(payload)
 		}
 		text := payload.Delta.Text
 		if text == "" {

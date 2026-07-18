@@ -1559,6 +1559,19 @@ func (h *GatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *se
 		h.handleStreamingAwareError(c, http.StatusBadGateway, "upstream_error", service.OpenAISilentRefusalClientMessage(), streamStarted)
 		return
 	}
+	if platform == service.PlatformAnthropic {
+		if kind, message, ok := service.ClaudeWebPublicErrorFromBody(responseBody); ok {
+			service.SetOpsUpstreamError(c, statusCode, message, "")
+			status := http.StatusBadGateway
+			errType := "upstream_error"
+			if kind == service.ClaudeWebErrorRateLimited {
+				status = http.StatusTooManyRequests
+				errType = "rate_limit_error"
+			}
+			h.handleStreamingAwareError(c, status, errType, message, streamStarted)
+			return
+		}
+	}
 
 	// 先检查透传规则
 	if h.errorPassthroughService != nil && len(responseBody) > 0 {

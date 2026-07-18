@@ -25,6 +25,21 @@ const (
 	ClaudeWebErrorUpstream      ClaudeWebErrorKind = "web_session_upstream"
 )
 
+// ClaudeWebStreamError represents an error event delivered inside a successful
+// HTTP SSE response. It intentionally retains only the classified public kind,
+// never the upstream body, because browser-session responses can contain
+// sensitive account details.
+type ClaudeWebStreamError struct {
+	Kind ClaudeWebErrorKind
+}
+
+func (e *ClaudeWebStreamError) Error() string {
+	if e == nil {
+		return claudeWebPublicErrorMessage(ClaudeWebErrorUpstream)
+	}
+	return claudeWebPublicErrorMessage(e.Kind)
+}
+
 func ClassifyClaudeWebResponse(status int, header http.Header, body []byte) ClaudeWebErrorKind {
 	switch status {
 	case http.StatusMovedPermanently, http.StatusFound, http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
@@ -115,13 +130,13 @@ func (s *GatewayService) forwardClaudeWebSession(
 			if ctx.Err() != nil {
 				clientDisconnect = true
 			}
-			return nil, err
+			return nil, claudeWebForwardError(err)
 		}
 	} else {
 		var body []byte
 		body, usage, err = AggregateClaudeWebSSE(response.Body, parsed.Model, messageID, inputTokens)
 		if err != nil {
-			return nil, err
+			return nil, claudeWebForwardError(err)
 		}
 		c.Data(http.StatusOK, "application/json; charset=utf-8", body)
 		firstTokenMs = nil
@@ -163,13 +178,25 @@ func (w claudeWebFlushWriter) Write(data []byte) (int, error) {
 
 func claudeWebForwardError(err error) error {
 	var upstreamErr *ClaudeWebHTTPError
-	if !errors.As(err, &upstreamErr) {
-		return err
+	if errors.As(err, &upstreamErr) {
+		kind := upstreamErr.Kind
+		if kind == "" {
+			kind = ClassifyClaudeWebResponse(upstreamErr.StatusCode, upstreamErr.Header, nil)
+		}
+		return newClaudeWebFailoverError(upstreamErr.StatusCode, kind, upstreamErr.Header)
 	}
-	kind := upstreamErr.Kind
-	if kind == "" {
-		kind = ClassifyClaudeWebResponse(upstreamErr.StatusCode, upstreamErr.Header, nil)
+	var streamErr *ClaudeWebStreamError
+	if errors.As(err, &streamErr) {
+		kind := streamErr.Kind
+		if kind == "" {
+			kind = ClaudeWebErrorUpstream
+		}
+		return newClaudeWebFailoverError(claudeWebStatusForKind(kind), kind, nil)
 	}
+	return err
+}
+
+func newClaudeWebFailoverError(status int, kind ClaudeWebErrorKind, header http.Header) error {
 	body, _ := json.Marshal(map[string]any{
 		"type": "error",
 		"error": map[string]string{
@@ -178,9 +205,44 @@ func claudeWebForwardError(err error) error {
 		},
 	})
 	return &UpstreamFailoverError{
-		StatusCode:      upstreamErr.StatusCode,
+		StatusCode:      status,
 		ResponseBody:    body,
-		ResponseHeaders: upstreamErr.Header.Clone(),
+		ResponseHeaders: header.Clone(),
+	}
+}
+
+func claudeWebStatusForKind(kind ClaudeWebErrorKind) int {
+	switch kind {
+	case ClaudeWebErrorExpired:
+		return http.StatusUnauthorized
+	case ClaudeWebErrorCloudflare:
+		return http.StatusForbidden
+	case ClaudeWebErrorRateLimited:
+		return http.StatusTooManyRequests
+	default:
+		return http.StatusBadGateway
+	}
+}
+
+// ClaudeWebPublicErrorFromBody recognizes only errors produced by the Claude
+// Web adapter and regenerates the message from an allowlist. The upstream
+// message is never trusted or exposed.
+func ClaudeWebPublicErrorFromBody(body []byte) (ClaudeWebErrorKind, string, bool) {
+	var envelope struct {
+		Error struct {
+			Type string `json:"type"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return "", "", false
+	}
+	kind := ClaudeWebErrorKind(strings.TrimSpace(envelope.Error.Type))
+	switch kind {
+	case ClaudeWebErrorExpired, ClaudeWebErrorCloudflare, ClaudeWebErrorRegionBlocked,
+		ClaudeWebErrorRateLimited, ClaudeWebErrorUpstream:
+		return kind, claudeWebPublicErrorMessage(kind), true
+	default:
+		return "", "", false
 	}
 }
 
@@ -191,7 +253,7 @@ func claudeWebPublicErrorMessage(kind ClaudeWebErrorKind) string {
 	case ClaudeWebErrorCloudflare:
 		return "Claude Web browser verification failed; check the account proxy and Cookie"
 	case ClaudeWebErrorRegionBlocked:
-		return "Claude Web is unavailable from the account proxy region"
+		return "Claude Web is unavailable from the current outbound region; bind or replace the account proxy"
 	case ClaudeWebErrorRateLimited:
 		return "Claude Web account is rate limited"
 	default:

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -25,8 +26,48 @@ func TestClassifyClaudeWebResponse(t *testing.T) {
 		http.Header{"Location": []string{"https://www.anthropic.com/app-unavailable-in-region"}},
 		nil,
 	))
-	require.Equal(t, "Claude Web is unavailable from the account proxy region", claudeWebPublicErrorMessage(ClaudeWebErrorRegionBlocked))
+	require.Equal(t, "Claude Web is unavailable from the current outbound region; bind or replace the account proxy", claudeWebPublicErrorMessage(ClaudeWebErrorRegionBlocked))
 	require.Equal(t, ClaudeWebErrorUpstream, ClassifyClaudeWebResponse(http.StatusBadGateway, nil, nil))
+}
+
+func TestClaudeWebPublicErrorFromBody(t *testing.T) {
+	body := []byte(`{"type":"error","error":{"type":"web_session_region_blocked","message":"Claude Web is unavailable from the current outbound region; bind or replace the account proxy"}}`)
+
+	kind, message, ok := ClaudeWebPublicErrorFromBody(body)
+
+	require.True(t, ok)
+	require.Equal(t, ClaudeWebErrorRegionBlocked, kind)
+	require.Equal(t, claudeWebPublicErrorMessage(ClaudeWebErrorRegionBlocked), message)
+
+	_, _, ok = ClaudeWebPublicErrorFromBody([]byte(`{"error":{"type":"other","message":"do not expose me"}}`))
+	require.False(t, ok)
+}
+
+func TestTranslateClaudeWebSSEDoesNotCommitBeforeInitialUpstreamError(t *testing.T) {
+	input := "event: error\n" +
+		`data: {"type":"error","error":{"type":"rate_limit_error","message":"rate limit reached"}}` + "\n\n"
+	var output strings.Builder
+
+	_, err := TranslateClaudeWebSSE(strings.NewReader(input), &output, ClaudeWebStreamMeta{
+		Model: "claude-haiku-4-5", MessageID: "msg-test", InputTokens: 1,
+	})
+
+	var streamErr *ClaudeWebStreamError
+	require.ErrorAs(t, err, &streamErr)
+	require.Equal(t, ClaudeWebErrorRateLimited, streamErr.Kind)
+	require.Empty(t, output.String())
+}
+
+func TestClaudeWebForwardErrorConvertsStreamError(t *testing.T) {
+	err := claudeWebForwardError(&ClaudeWebStreamError{Kind: ClaudeWebErrorRateLimited})
+
+	var failover *UpstreamFailoverError
+	require.ErrorAs(t, err, &failover)
+	require.Equal(t, http.StatusTooManyRequests, failover.StatusCode)
+	kind, message, ok := ClaudeWebPublicErrorFromBody(failover.ResponseBody)
+	require.True(t, ok)
+	require.Equal(t, ClaudeWebErrorRateLimited, kind)
+	require.Equal(t, claudeWebPublicErrorMessage(kind), message)
 }
 
 func TestGatewayForwardClaudeWebSessionUsesWebTransport(t *testing.T) {

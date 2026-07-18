@@ -97,7 +97,7 @@ func TestTranslateClaudeWebSSEReturnsSanitizedUpstreamError(t *testing.T) {
 
 	require.Error(t, err)
 	require.NotContains(t, err.Error(), "secret-value")
-	require.Contains(t, err.Error(), "Claude Web stream error")
+	require.Contains(t, err.Error(), "Claude Web session expired")
 }
 
 func TestBuildClaudeWebPromptRejectsUnsupportedBlocks(t *testing.T) {

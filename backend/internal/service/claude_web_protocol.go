@@ -195,6 +195,10 @@ type claudeWebStreamPayload struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
 	} `json:"delta"`
+	Error struct {
+		Type    string `json:"type"`
+		Message string `json:"message"`
+	} `json:"error"`
 }
 
 func TranslateClaudeWebSSE(src io.Reader, dst io.Writer, meta ClaudeWebStreamMeta) (ClaudeUsage, error) {
@@ -202,35 +206,46 @@ func TranslateClaudeWebSSE(src io.Reader, dst io.Writer, meta ClaudeWebStreamMet
 		meta.MessageID = "msg_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	}
 	usage := ClaudeUsage{InputTokens: meta.InputTokens}
-	if err := writeClaudeWebSSE(dst, "message_start", map[string]any{
-		"type": "message_start",
-		"message": map[string]any{
-			"id": meta.MessageID, "type": "message", "role": "assistant",
-			"content": []any{}, "model": meta.Model,
-			"stop_reason": nil, "stop_sequence": nil,
-			"usage": map[string]int{"input_tokens": usage.InputTokens, "output_tokens": 0},
-		},
-	}); err != nil {
-		return usage, err
-	}
-	if err := writeClaudeWebSSE(dst, "content_block_start", map[string]any{
-		"type": "content_block_start", "index": 0,
-		"content_block": map[string]string{"type": "text", "text": ""},
-	}); err != nil {
-		return usage, err
+	started := false
+	start := func() error {
+		if started {
+			return nil
+		}
+		if err := writeClaudeWebSSE(dst, "message_start", map[string]any{
+			"type": "message_start",
+			"message": map[string]any{
+				"id": meta.MessageID, "type": "message", "role": "assistant",
+				"content": []any{}, "model": meta.Model,
+				"stop_reason": nil, "stop_sequence": nil,
+				"usage": map[string]int{"input_tokens": usage.InputTokens, "output_tokens": 0},
+			},
+		}); err != nil {
+			return err
+		}
+		if err := writeClaudeWebSSE(dst, "content_block_start", map[string]any{
+			"type": "content_block_start", "index": 0,
+			"content_block": map[string]string{"type": "text", "text": ""},
+		}); err != nil {
+			return err
+		}
+		started = true
+		return nil
 	}
 
 	outputRunes := 0
 	err := scanClaudeWebSSE(src, func(event string, data []byte) error {
-		if event == "error" {
-			return errors.New("Claude Web stream error")
-		}
 		var payload claudeWebStreamPayload
 		if err := json.Unmarshal(data, &payload); err != nil {
+			if event == "error" {
+				return &ClaudeWebStreamError{Kind: ClaudeWebErrorUpstream}
+			}
 			return errors.New("decode Claude Web stream event")
 		}
-		if payload.Type == "error" {
-			return errors.New("Claude Web stream error")
+		if event == "error" || payload.Type == "error" {
+			return newClaudeWebStreamError(payload)
+		}
+		if err := start(); err != nil {
+			return err
 		}
 		text := payload.Delta.Text
 		if text == "" {
@@ -249,6 +264,9 @@ func TranslateClaudeWebSSE(src io.Reader, dst io.Writer, meta ClaudeWebStreamMet
 		})
 	})
 	if err != nil {
+		return usage, err
+	}
+	if err := start(); err != nil {
 		return usage, err
 	}
 	usage.OutputTokens = estimateClaudeWebTokens(outputRunes)
@@ -276,15 +294,15 @@ func AggregateClaudeWebSSE(src io.Reader, model, messageID string, inputTokens i
 	}
 	var text strings.Builder
 	err := scanClaudeWebSSE(src, func(event string, data []byte) error {
-		if event == "error" {
-			return errors.New("Claude Web stream error")
-		}
 		var payload claudeWebStreamPayload
 		if err := json.Unmarshal(data, &payload); err != nil {
+			if event == "error" {
+				return &ClaudeWebStreamError{Kind: ClaudeWebErrorUpstream}
+			}
 			return errors.New("decode Claude Web stream event")
 		}
-		if payload.Type == "error" {
-			return errors.New("Claude Web stream error")
+		if event == "error" || payload.Type == "error" {
+			return newClaudeWebStreamError(payload)
 		}
 		delta := payload.Delta.Text
 		if delta == "" {
@@ -313,6 +331,22 @@ func AggregateClaudeWebSSE(src io.Reader, model, messageID string, inputTokens i
 		return nil, usage, errors.New("encode Claude Web response")
 	}
 	return body, usage, nil
+}
+
+func newClaudeWebStreamError(payload claudeWebStreamPayload) error {
+	value := strings.ToLower(strings.TrimSpace(payload.Error.Type + " " + payload.Error.Message))
+	kind := ClaudeWebErrorUpstream
+	switch {
+	case strings.Contains(value, "rate") || strings.Contains(value, "limit") || strings.Contains(value, "usage"):
+		kind = ClaudeWebErrorRateLimited
+	case strings.Contains(value, "region") || strings.Contains(value, "country"):
+		kind = ClaudeWebErrorRegionBlocked
+	case strings.Contains(value, "cloudflare") || strings.Contains(value, "challenge"):
+		kind = ClaudeWebErrorCloudflare
+	case strings.Contains(value, "session") || strings.Contains(value, "auth") || strings.Contains(value, "unauthorized"):
+		kind = ClaudeWebErrorExpired
+	}
+	return &ClaudeWebStreamError{Kind: kind}
 }
 
 func scanClaudeWebSSE(src io.Reader, handle func(event string, data []byte) error) error {

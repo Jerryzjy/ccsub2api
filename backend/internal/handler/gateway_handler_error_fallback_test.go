@@ -8,10 +8,28 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestGatewayHandleFailoverExhaustedPreservesClaudeWebRegionError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, EndpointMessages, nil)
+	h := &GatewayHandler{}
+
+	h.handleFailoverExhausted(c, &service.UpstreamFailoverError{
+		StatusCode:   http.StatusFound,
+		ResponseBody: []byte(`{"type":"error","error":{"type":"web_session_region_blocked","message":"Claude Web is unavailable from the current outbound region; bind or replace the account proxy"}}`),
+	}, service.PlatformAnthropic, false)
+
+	require.Equal(t, http.StatusBadGateway, w.Code)
+	require.Contains(t, w.Body.String(), "bind or replace the account proxy")
+	require.NotContains(t, w.Body.String(), "Upstream request failed")
+}
 
 func TestGatewayEnsureForwardErrorResponse_WritesFallbackWhenNotWritten(t *testing.T) {
 	gin.SetMode(gin.TestMode)
