@@ -50,11 +50,13 @@ func TestPlanClaudeWebConversation_FollowUpUsesOnlyLatestUserTurn(t *testing.T) 
 			{"role":"user","content":"second question"}
 		]
 	}`)
+	firstPlan, err := PlanClaudeWebConversation(first, "claude-sonnet-5", nil, now.Add(-time.Minute))
+	require.NoError(t, err)
 	state := &ClaudeWebConversationState{
 		ConversationID:         "conv-1",
 		ParentMessageUUID:      "assistant-turn-1",
 		Model:                  "claude-sonnet-5",
-		DigestChain:            BuildAnthropicDigestChain(first),
+		DigestChain:            firstPlan.DigestChain,
 		ContextTokensEstimated: 1200,
 		LastUsedAt:             now.Add(-time.Minute),
 		TTLSeconds:             300,
@@ -70,6 +72,43 @@ func TestPlanClaudeWebConversation_FollowUpUsesOnlyLatestUserTurn(t *testing.T) 
 	require.Equal(t, 1200, plan.ReusedInputTokensEstimated)
 	require.Greater(t, plan.NewInputTokensEstimated, 0)
 	require.Equal(t, 5*time.Minute, plan.TTL)
+}
+
+func TestPlanClaudeWebConversation_FollowUpNormalizesAnthropicTextBlocksAndCacheControl(t *testing.T) {
+	now := time.Date(2026, 7, 18, 12, 1, 0, 0, time.UTC)
+	first := mustParseClaudeWebConversationRequest(t, `{
+		"model":"claude-sonnet-5",
+		"system":[{"type":"text","text":"be concise","cache_control":{"type":"ephemeral","ttl":"5m"}}],
+		"messages":[{"role":"user","content":[{"type":"text","text":"first question","cache_control":{"type":"ephemeral"}}]}]
+	}`)
+	firstPlan, err := PlanClaudeWebConversation(first, "claude-sonnet-5", nil, now.Add(-time.Minute))
+	require.NoError(t, err)
+
+	second := mustParseClaudeWebConversationRequest(t, `{
+		"model":"claude-sonnet-5",
+		"system":[{"type":"text","text":"be concise","cache_control":{"type":"ephemeral","ttl":"1h"}}],
+		"messages":[
+			{"role":"user","content":[{"type":"text","text":"first question"}]},
+			{"role":"assistant","content":[{"type":"text","text":"first answer"}]},
+			{"role":"user","content":[{"type":"text","text":"second question"}]}
+		]
+	}`)
+	state := &ClaudeWebConversationState{
+		ConversationID:         "conv-1",
+		ParentMessageUUID:      "assistant-turn-1",
+		Model:                  "claude-sonnet-5",
+		DigestChain:            firstPlan.DigestChain + "-" + claudeWebAssistantDigest("first answer"),
+		ContextTokensEstimated: 1200,
+		LastUsedAt:             now.Add(-time.Minute),
+		TTLSeconds:             300,
+	}
+
+	plan, err := PlanClaudeWebConversation(second, "claude-sonnet-5", state, now)
+
+	require.NoError(t, err)
+	require.True(t, plan.Reused)
+	require.Empty(t, plan.MissReason)
+	require.Equal(t, "second question", plan.Prompt)
 }
 
 func TestPlanClaudeWebConversation_DivergedHistoryRebuilds(t *testing.T) {

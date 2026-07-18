@@ -68,6 +68,70 @@ func TestAccountIsClaudeWebSession(t *testing.T) {
 	require.False(t, (&Account{Platform: PlatformAnthropic, Type: AccountTypeOAuth}).IsClaudeWebSession())
 }
 
+func TestMergeClaudeWebSessionCredentials_SessionKeyReplacementDropsOldCookieAndDerivedIdentity(t *testing.T) {
+	existing := map[string]any{
+		ClaudeWebCredentialCookie:         "sessionKey=old-cookie",
+		ClaudeWebCredentialSessionKey:     "old-session-key",
+		ClaudeWebCredentialOrganizationID: "old-org",
+		ClaudeWebCredentialEmailAddress:   "old@example.com",
+		"model_mapping":                   map[string]any{"claude": "claude-sonnet-5"},
+	}
+	incoming := map[string]any{
+		ClaudeWebCredentialSessionKey:     "new-session-key",
+		ClaudeWebCredentialOrganizationID: "old-org",
+		ClaudeWebCredentialEmailAddress:   "old@example.com",
+		"model_mapping":                   map[string]any{"claude": "claude-sonnet-5"},
+	}
+
+	got := mergeClaudeWebSessionCredentials(existing, incoming)
+
+	require.Equal(t, "new-session-key", got[ClaudeWebCredentialSessionKey])
+	require.NotContains(t, got, ClaudeWebCredentialCookie)
+	require.NotContains(t, got, ClaudeWebCredentialOrganizationID)
+	require.NotContains(t, got, ClaudeWebCredentialEmailAddress)
+	require.Contains(t, got, "model_mapping")
+}
+
+func TestMergeClaudeWebSessionCredentials_CookieReplacementDropsOldSessionKeyAndDerivedIdentity(t *testing.T) {
+	existing := map[string]any{
+		ClaudeWebCredentialCookie:         "sessionKey=old-cookie",
+		ClaudeWebCredentialSessionKey:     "old-session-key",
+		ClaudeWebCredentialOrganizationID: "old-org",
+		ClaudeWebCredentialEmailAddress:   "old@example.com",
+	}
+	incoming := map[string]any{
+		ClaudeWebCredentialCookie:         "sessionKey=new-cookie",
+		ClaudeWebCredentialOrganizationID: "old-org",
+		ClaudeWebCredentialEmailAddress:   "old@example.com",
+	}
+
+	got := mergeClaudeWebSessionCredentials(existing, incoming)
+
+	require.Equal(t, "sessionKey=new-cookie", got[ClaudeWebCredentialCookie])
+	require.NotContains(t, got, ClaudeWebCredentialSessionKey)
+	require.NotContains(t, got, ClaudeWebCredentialOrganizationID)
+	require.NotContains(t, got, ClaudeWebCredentialEmailAddress)
+}
+
+func TestMergeClaudeWebSessionCredentials_WithoutReplacementPreservesCurrentIdentity(t *testing.T) {
+	existing := map[string]any{
+		ClaudeWebCredentialCookie:         "sessionKey=current-cookie",
+		ClaudeWebCredentialOrganizationID: "current-org",
+		ClaudeWebCredentialEmailAddress:   "current@example.com",
+	}
+	incoming := map[string]any{
+		ClaudeWebCredentialOrganizationID: "current-org",
+		ClaudeWebCredentialEmailAddress:   "current@example.com",
+		"model_mapping":                   map[string]any{"claude": "claude-sonnet-5"},
+	}
+
+	got := mergeClaudeWebSessionCredentials(existing, incoming)
+
+	require.Equal(t, "sessionKey=current-cookie", got[ClaudeWebCredentialCookie])
+	require.Equal(t, "current-org", got[ClaudeWebCredentialOrganizationID])
+	require.Equal(t, "current@example.com", got[ClaudeWebCredentialEmailAddress])
+}
+
 func TestNormalizeClaudeWebCookie_Header(t *testing.T) {
 	got, err := NormalizeClaudeWebCookie(
 		"foo=bar; sessionKey=cookie-value; lastActiveOrg=org-1",

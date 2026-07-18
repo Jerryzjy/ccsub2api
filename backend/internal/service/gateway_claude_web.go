@@ -85,7 +85,7 @@ func (s *GatewayService) forwardClaudeWebSession(
 	}
 
 	conversationCache := s.claudeWebConversationCache()
-	conversationKey := s.claudeWebConversationKey(parsed, account.ID)
+	conversationKey := s.claudeWebConversationKey(parsed, account)
 	if conversationKey == "" {
 		conversationCache = nil
 	}
@@ -328,6 +328,13 @@ func (w claudeWebFlushWriter) Write(data []byte) (int, error) {
 }
 
 func claudeWebForwardError(err error) error {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	var failoverErr *UpstreamFailoverError
+	if errors.As(err, &failoverErr) {
+		return err
+	}
 	var upstreamErr *ClaudeWebHTTPError
 	if errors.As(err, &upstreamErr) {
 		kind := upstreamErr.Kind
@@ -344,7 +351,10 @@ func claudeWebForwardError(err error) error {
 		}
 		return newClaudeWebFailoverError(claudeWebStatusForKind(kind), kind, nil)
 	}
-	return err
+	// Transport, response-decoding, and malformed-stream failures are upstream
+	// account failures too. Normalize them so the handler can fail over to a
+	// healthy account instead of returning a generic local 502 immediately.
+	return newClaudeWebFailoverError(http.StatusBadGateway, ClaudeWebErrorUpstream, nil)
 }
 
 func newClaudeWebFailoverError(status int, kind ClaudeWebErrorKind, header http.Header) error {

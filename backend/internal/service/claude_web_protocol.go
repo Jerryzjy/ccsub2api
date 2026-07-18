@@ -379,8 +379,11 @@ func claudeWebUsagePayload(usage ClaudeUsage, outputTokens int) map[string]any {
 }
 
 func claudeWebAssistantDigest(text string) string {
-	raw, _ := json.Marshal(text)
-	return "a:" + shortHash(raw)
+	return claudeWebTextDigest("a", text)
+}
+
+func claudeWebTextDigest(prefix, text string) string {
+	return prefix + ":" + shortHash([]byte(text))
 }
 
 func newClaudeWebStreamError(payload claudeWebStreamPayload) error {

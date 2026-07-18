@@ -91,10 +91,14 @@ func PlanClaudeWebConversation(parsed *ParsedRequest, model string, state *Claud
 	if err != nil {
 		return ClaudeWebConversationPlan{}, err
 	}
+	digestChain, err := buildClaudeWebDigestChain(parsed)
+	if err != nil {
+		return ClaudeWebConversationPlan{}, err
+	}
 
 	plan := ClaudeWebConversationPlan{
 		Prompt:      fullPrompt,
-		DigestChain: BuildAnthropicDigestChain(parsed),
+		DigestChain: digestChain,
 		TTL:         ClaudeWebConversationTTL(parsed),
 		MissReason:  "first_turn",
 	}
@@ -138,6 +142,39 @@ func PlanClaudeWebConversation(parsed *ParsedRequest, model string, state *Claud
 	plan.ReusedInputTokensEstimated = state.ContextTokensEstimated
 	plan.NewInputTokensEstimated = estimateClaudeWebTokens(len([]rune(latestPrompt)))
 	return plan, nil
+}
+
+// buildClaudeWebDigestChain hashes the text semantics that are actually sent
+// to Claude Web. Anthropic content strings and single text-block arrays are
+// equivalent for this adapter, and cache_control metadata does not change the
+// flattened upstream prompt, so neither difference should invalidate reuse.
+func buildClaudeWebDigestChain(parsed *ParsedRequest) (string, error) {
+	if parsed == nil || parsed.Body == nil {
+		return "", errors.New("empty request")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(parsed.Body.Bytes()))
+	decoder.UseNumber()
+	var request claudeWebAnthropicRequest
+	if err := decoder.Decode(&request); err != nil {
+		return "", fmt.Errorf("decode anthropic request: %w", err)
+	}
+
+	parts := make([]string, 0, len(request.Messages)+1)
+	if rawSystem := bytes.TrimSpace(request.System); len(rawSystem) > 0 && !bytes.Equal(rawSystem, []byte("null")) {
+		text, err := claudeWebContentText(request.System)
+		if err != nil {
+			return "", fmt.Errorf("system: %w", err)
+		}
+		parts = append(parts, claudeWebTextDigest("s", text))
+	}
+	for i, message := range request.Messages {
+		text, err := claudeWebContentText(message.Content)
+		if err != nil {
+			return "", fmt.Errorf("messages[%d]: %w", i, err)
+		}
+		parts = append(parts, claudeWebTextDigest(rolePrefix(message.Role), text))
+	}
+	return strings.Join(parts, "-"), nil
 }
 
 func ClaudeWebConversationTTL(parsed *ParsedRequest) time.Duration {
@@ -197,8 +234,12 @@ func latestClaudeWebUserPrompt(parsed *ParsedRequest) (string, error) {
 	return prompt, nil
 }
 
-func (s *GatewayService) claudeWebConversationKey(parsed *ParsedRequest, accountID int64) string {
-	if s == nil || parsed == nil || parsed.SessionContext == nil || parsed.SessionContext.APIKeyID <= 0 || accountID <= 0 {
+func (s *GatewayService) claudeWebConversationKey(parsed *ParsedRequest, account *Account) string {
+	if s == nil || parsed == nil || parsed.SessionContext == nil || parsed.SessionContext.APIKeyID <= 0 || account == nil || account.ID <= 0 {
+		return ""
+	}
+	credentialFingerprint := claudeWebCredentialFingerprint(account)
+	if credentialFingerprint == "" {
 		return ""
 	}
 	sessionHash := s.GenerateSessionHash(parsed)
@@ -206,12 +247,30 @@ func (s *GatewayService) claudeWebConversationKey(parsed *ParsedRequest, account
 		return ""
 	}
 	digest := sha256.Sum256([]byte(sessionHash))
-	return fmt.Sprintf("%d:%d:%d:%s",
+	return fmt.Sprintf("%d:%d:%d:%s:%s",
 		parsed.SessionContext.APIKeyID,
 		derefGroupID(parsed.GroupID),
-		accountID,
+		account.ID,
+		credentialFingerprint,
 		hex.EncodeToString(digest[:16]),
 	)
+}
+
+func claudeWebCredentialFingerprint(account *Account) string {
+	if account == nil {
+		return ""
+	}
+	sessionKey := strings.TrimSpace(account.GetCredential(ClaudeWebCredentialSessionKey))
+	if rawCookie := strings.TrimSpace(account.GetCredential(ClaudeWebCredentialCookie)); rawCookie != "" {
+		if normalized, err := NormalizeClaudeWebCookie(rawCookie, time.Now()); err == nil && normalized.SessionKey != "" {
+			sessionKey = normalized.SessionKey
+		}
+	}
+	if sessionKey == "" {
+		return ""
+	}
+	digest := sha256.Sum256([]byte(sessionKey))
+	return hex.EncodeToString(digest[:16])
 }
 
 func (s *GatewayService) claudeWebConversationCache() ClaudeWebConversationCache {

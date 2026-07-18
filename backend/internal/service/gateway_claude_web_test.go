@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,14 +18,22 @@ import (
 
 type claudeWebConversationCacheStub struct {
 	GatewayCache
-	mu     sync.Mutex
-	values map[string][]byte
+	mu       sync.Mutex
+	values   map[string][]byte
+	getCalls int
+	getHits  int
+	setCalls int
 }
 
 func (s *claudeWebConversationCacheStub) GetClaudeWebConversation(_ context.Context, key string) ([]byte, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]byte(nil), s.values[key]...), nil
+	s.getCalls++
+	value := s.values[key]
+	if len(value) > 0 {
+		s.getHits++
+	}
+	return append([]byte(nil), value...), nil
 }
 
 func (s *claudeWebConversationCacheStub) SetClaudeWebConversation(_ context.Context, key string, value []byte, _ time.Duration) error {
@@ -33,6 +42,7 @@ func (s *claudeWebConversationCacheStub) SetClaudeWebConversation(_ context.Cont
 	if s.values == nil {
 		s.values = make(map[string][]byte)
 	}
+	s.setCalls++
 	s.values[key] = append([]byte(nil), value...)
 	return nil
 }
@@ -107,6 +117,24 @@ func TestClaudeWebForwardErrorConvertsStreamError(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, ClaudeWebErrorRateLimited, kind)
 	require.Equal(t, claudeWebPublicErrorMessage(kind), message)
+}
+
+func TestClaudeWebForwardErrorConvertsPlainUpstreamFailure(t *testing.T) {
+	err := claudeWebForwardError(errors.New("dial failed: sessionKey=secret-value"))
+
+	var failover *UpstreamFailoverError
+	require.ErrorAs(t, err, &failover)
+	require.Equal(t, http.StatusBadGateway, failover.StatusCode)
+	kind, message, ok := ClaudeWebPublicErrorFromBody(failover.ResponseBody)
+	require.True(t, ok)
+	require.Equal(t, ClaudeWebErrorUpstream, kind)
+	require.Equal(t, claudeWebPublicErrorMessage(kind), message)
+	require.NotContains(t, string(failover.ResponseBody), "secret-value")
+}
+
+func TestClaudeWebForwardErrorPreservesContextCancellation(t *testing.T) {
+	require.ErrorIs(t, claudeWebForwardError(context.Canceled), context.Canceled)
+	require.ErrorIs(t, claudeWebForwardError(context.DeadlineExceeded), context.DeadlineExceeded)
 }
 
 func TestGatewayForwardClaudeWebSessionUsesWebTransport(t *testing.T) {
@@ -211,7 +239,7 @@ func TestGatewayForwardClaudeWebSessionRecordsConversationCacheCreationAndRead(t
 		"system":[{"type":"text","text":"be concise","cache_control":{"type":"ephemeral"}}],
 		"messages":[
 			{"role":"user","content":"first question"},
-			{"role":"assistant","content":"first answer"},
+			{"role":"assistant","content":[{"type":"text","text":"first answer"}]},
 			{"role":"user","content":"second question"}
 		]
 	}`)
@@ -227,8 +255,80 @@ func TestGatewayForwardClaudeWebSessionRecordsConversationCacheCreationAndRead(t
 	require.Greater(t, secondResult.Usage.CacheCreationInputTokens, 0)
 	require.Greater(t, secondResult.Usage.CacheReadInputTokens, 0)
 	require.Contains(t, secondRecorder.Body.String(), `"cache_read_input_tokens":`)
+	require.Equal(t, 2, cache.getCalls)
+	require.Equal(t, 1, cache.getHits)
+	require.Equal(t, 2, cache.setCalls)
 	require.Len(t, transport.requests, 3)
 	require.Equal(t, "/api/organizations/org-1/chat_conversations/conv-cache/completion", transport.requests[2].URL.Path)
+	var reusedPayload ClaudeWebCompletionRequest
+	require.NoError(t, json.NewDecoder(transport.requests[2].Body).Decode(&reusedPayload))
+	require.Equal(t, "second question", reusedPayload.Prompt)
+	require.NotEmpty(t, reusedPayload.ParentMessageUUID)
+}
+
+func TestGatewayForwardClaudeWebSessionCredentialRotationDoesNotReuseOldConversation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	firstSSE := "event: content_block_delta\n" +
+		"data: {\"delta\":{\"type\":\"text_delta\",\"text\":\"first answer\"}}\n\n" +
+		"event: message_stop\ndata: {}\n\n"
+	secondSSE := "event: content_block_delta\n" +
+		"data: {\"delta\":{\"type\":\"text_delta\",\"text\":\"second answer\"}}\n\n" +
+		"event: message_stop\ndata: {}\n\n"
+	transport := &claudeWebTransportStub{responses: []*http.Response{
+		claudeWebTestResponse(http.StatusCreated, `{"uuid":"conv-old"}`),
+		claudeWebTestResponse(http.StatusOK, firstSSE),
+		claudeWebTestResponse(http.StatusCreated, `{"uuid":"conv-new"}`),
+		claudeWebTestResponse(http.StatusOK, secondSSE),
+	}}
+	cache := &claudeWebConversationCacheStub{values: make(map[string][]byte)}
+	service := &GatewayService{
+		cfg:             &config.Config{},
+		cache:           cache,
+		claudeWebClient: NewClaudeWebClient(transport),
+	}
+	account := &Account{
+		ID:       27,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeWebSession,
+		Credentials: map[string]any{
+			ClaudeWebCredentialSessionKey:     "old-session-key",
+			ClaudeWebCredentialOrganizationID: "org-1",
+		},
+	}
+
+	first := mustParseClaudeWebConversationRequest(t, `{
+		"model":"claude-sonnet-5","stream":false,
+		"messages":[{"role":"user","content":"first question"}]
+	}`)
+	first.SessionContext = &SessionContext{APIKeyID: 9, ClientIP: "127.0.0.1", UserAgent: "test"}
+	firstRecorder := httptest.NewRecorder()
+	firstCtx, _ := gin.CreateTestContext(firstRecorder)
+	firstCtx.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	_, err := service.Forward(context.Background(), firstCtx, account, first)
+	require.NoError(t, err)
+
+	account.Credentials[ClaudeWebCredentialSessionKey] = "new-session-key"
+	second := mustParseClaudeWebConversationRequest(t, `{
+		"model":"claude-sonnet-5","stream":false,
+		"messages":[
+			{"role":"user","content":"first question"},
+			{"role":"assistant","content":"first answer"},
+			{"role":"user","content":"second question"}
+		]
+	}`)
+	second.SessionContext = &SessionContext{APIKeyID: 9, ClientIP: "127.0.0.1", UserAgent: "test"}
+	secondRecorder := httptest.NewRecorder()
+	secondCtx, _ := gin.CreateTestContext(secondRecorder)
+	secondCtx.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	_, err = service.Forward(context.Background(), secondCtx, account, second)
+
+	require.NoError(t, err)
+	require.Len(t, transport.requests, 4)
+	require.Equal(t, "/api/organizations/org-1/chat_conversations", transport.requests[2].URL.Path)
+	require.Contains(t, transport.requests[2].Header.Get("Cookie"), "sessionKey=new-session-key")
+	require.Contains(t, secondRecorder.Body.String(), "second answer")
 }
 
 func TestGatewayForwardClaudeWebSessionReturnsFailoverError(t *testing.T) {

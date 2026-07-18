@@ -62,6 +62,32 @@ func credentialString(credentials map[string]any, key string) string {
 	return strings.TrimSpace(value)
 }
 
+func mergeClaudeWebSessionCredentials(existing, incoming map[string]any) map[string]any {
+	merged := MergePreservingSensitiveCreds(existing, incoming)
+	cookieReplaced := credentialString(incoming, ClaudeWebCredentialCookie) != ""
+	sessionKeyReplaced := credentialString(incoming, ClaudeWebCredentialSessionKey) != ""
+	if !cookieReplaced && !sessionKeyReplaced {
+		return merged
+	}
+
+	// organization_id and email_address are derived from the authenticated
+	// Claude account. Keeping them across an auth replacement can route the new
+	// session to the previous account's organization and stale profile.
+	delete(merged, ClaudeWebCredentialOrganizationID)
+	delete(merged, ClaudeWebCredentialEmailAddress)
+
+	// A full Cookie takes precedence during request construction. When callers
+	// replace only one auth form, remove the other form so an older value cannot
+	// silently win over the newly supplied credential.
+	if cookieReplaced && !sessionKeyReplaced {
+		delete(merged, ClaudeWebCredentialSessionKey)
+	}
+	if sessionKeyReplaced && !cookieReplaced {
+		delete(merged, ClaudeWebCredentialCookie)
+	}
+	return merged
+}
+
 // NormalizeClaudeWebCookie accepts either a Cookie request header or a
 // Netscape cookie export and returns a deterministic Cookie header.
 func NormalizeClaudeWebCookie(raw string, now time.Time) (ClaudeWebCookie, error) {

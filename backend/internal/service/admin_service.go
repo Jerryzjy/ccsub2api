@@ -2778,7 +2778,11 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if len(input.Credentials) > 0 {
 		// 敏感子键采用"incoming 没提供就保留"的合并语义：前端响应已脱敏，
 		// 全对象 PUT 编辑时不会再带回 token，避免覆盖时清空已有凭证。
-		account.Credentials = MergePreservingSensitiveCreds(account.Credentials, input.Credentials)
+		if account.Type == AccountTypeWebSession {
+			account.Credentials = mergeClaudeWebSessionCredentials(account.Credentials, input.Credentials)
+		} else {
+			account.Credentials = MergePreservingSensitiveCreds(account.Credentials, input.Credentials)
+		}
 	}
 	if account.Type == AccountTypeWebSession {
 		if err := ValidateClaudeWebSessionCredentials(account.Platform, account.Credentials); err != nil {
