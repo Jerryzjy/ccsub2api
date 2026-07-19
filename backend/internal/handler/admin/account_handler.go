@@ -1790,6 +1790,28 @@ type CookieAuthRequest struct {
 	ProxyID    *int64 `json:"proxy_id"`
 }
 
+// CookieAuth performs full OAuth authorization using a claude.ai sessionKey.
+// POST /api/v1/admin/accounts/cookie-auth
+func (h *OAuthHandler) CookieAuth(c *gin.Context) {
+	var req CookieAuthRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	tokenInfo, err := h.oauthService.CookieAuth(c.Request.Context(), &service.CookieAuthInput{
+		SessionKey: req.SessionKey,
+		ProxyID:    req.ProxyID,
+		Scope:      "full",
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, tokenInfo)
+}
+
 // SetupTokenCookieAuth performs OAuth using sessionKey for setup token (inference only)
 // POST /api/v1/admin/accounts/setup-token-cookie-auth
 func (h *OAuthHandler) SetupTokenCookieAuth(c *gin.Context) {

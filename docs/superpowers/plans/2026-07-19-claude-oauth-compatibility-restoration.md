@@ -103,7 +103,7 @@ usage: {
 }
 ```
 
-Require `session_window_utilization=0.25`, `passive_usage_7d_utilization=0.1`, a Unix-second 7d reset, and `passive_usage_sampled_at`. Add a second test proving malformed optional values are ignored.
+Require `passive_usage_7d_utilization=0.1`, a Unix-second 7d reset, and `passive_usage_sampled_at`. Explicitly require that the 5h utilization is not imported without the dedicated session-window end column. Add a second test proving malformed optional values are ignored.
 
 - [ ] **Step 2: Verify parser tests fail**
 
@@ -113,7 +113,7 @@ Expected: FAIL because the parser currently ignores `usage`.
 
 - [ ] **Step 3: Implement optional usage normalization**
 
-Change `extra` to `Record<string, unknown>`, parse finite percentages in the 0..100 range into ratios, parse reset timestamps with `Date.parse`, write only valid passive fields, and set `passive_usage_sampled_at` when at least one usage field is accepted.
+Change `extra` to `Record<string, unknown>`, parse the finite weekly percentage in the 0..100 range into a ratio, parse the weekly reset timestamp with `Date.parse`, write only valid passive 7d fields, and set `passive_usage_sampled_at` when at least one 7d field is accepted. Do not import the 5h utilization without a safe session-window end writer.
 
 - [ ] **Step 4: Verify parser tests pass**
 
@@ -125,7 +125,7 @@ Expected: PASS.
 
 **Files:**
 - Modify: `backend/cmd/server/VERSION`
-- Create: `RELEASE_NOTES_v1.7.5.md`
+- Create: `RELEASE_NOTES_v1.7.6.md`
 
 - [ ] **Step 1: Run focused frontend tests**
 
@@ -151,10 +151,10 @@ Expected: all tests PASS.
 
 Open the Claude OAuth account creation flow and verify manual authorization, sessionKey authorization, and credentials import are simultaneously visible; verify no framework overlay or relevant console error.
 
-- [ ] **Step 5: Prepare v1.7.5**
+- [ ] **Step 5: Prepare v1.7.6**
 
-Set `backend/cmd/server/VERSION` to `1.7.5` and document the compatibility restoration and usage snapshot fix in `RELEASE_NOTES_v1.7.5.md`.
+Set `backend/cmd/server/VERSION` to `1.7.6` and document the compatibility restoration and usage snapshot fix in `RELEASE_NOTES_v1.7.6.md`.
 
 - [ ] **Step 6: Commit, tag, and push after fresh verification**
 
-Commit the tested changes, create annotated tag `v1.7.5`, and push `master` plus the tag to `origin`.
+Commit the tested changes, create annotated tag `v1.7.6`, and push `master` plus the tag to `origin`.

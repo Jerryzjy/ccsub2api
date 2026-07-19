@@ -21,10 +21,11 @@ Claude Setup Token creation continues to offer manual authorization and `session
 
 When `credentials.json` contains a `usage` object, import maps the snapshot to the existing passive-cache fields:
 
-- `session_used_percent` -> `session_window_utilization` (percent converted to a 0..1 ratio)
 - `weekly_used_percent` -> `passive_usage_7d_utilization` (percent converted to a 0..1 ratio)
 - `weekly_resets_at` -> `passive_usage_7d_reset` (Unix seconds)
 - a valid usage snapshot sets `passive_usage_sampled_at`
+
+The imported `session_used_percent` is intentionally not persisted. Sub2API's 5h scheduler snapshot is only safe when paired with the account's dedicated `session_window_end` column, which the credentials import payload does not initialize. The existing response-header/active-usage flow remains the sole writer for the schedulable 5h snapshot.
 
 Invalid optional usage fields are ignored without rejecting otherwise valid OAuth credentials. Token, scope, account, and subscription fields retain the current validation rules.
 

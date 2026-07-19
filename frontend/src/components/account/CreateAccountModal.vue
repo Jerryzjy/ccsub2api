@@ -3221,7 +3221,7 @@
         :show-help="form.platform === 'anthropic'"
         :show-proxy-warning="form.platform !== 'openai' && !!form.proxy_id"
         :allow-multiple="form.platform === 'anthropic'"
-        :show-cookie-option="form.platform === 'anthropic' && addMethod === 'setup-token'"
+        :show-cookie-option="form.platform === 'anthropic'"
         :show-credentials-import-option="form.platform === 'anthropic' && addMethod === 'oauth'"
         :show-refresh-token-option="form.platform === 'openai' || form.platform === 'antigravity'"
         :show-mobile-refresh-token-option="form.platform === 'openai'"
@@ -5875,8 +5875,6 @@ const handleClaudeCredentialsImport = async (content: string) => {
 }
 
 const handleCookieAuth = async (sessionKey: string) => {
-  if (addMethod.value !== 'setup-token') return
-
   oauth.loading.value = true
   oauth.error.value = ''
 
@@ -5898,7 +5896,10 @@ const handleCookieAuth = async (sessionKey: string) => {
       return
     }
 
-    const endpoint = '/admin/accounts/setup-token-cookie-auth'
+    const endpoint =
+      addMethod.value === 'oauth'
+        ? '/admin/accounts/cookie-auth'
+        : '/admin/accounts/setup-token-cookie-auth'
 
     let successCount = 0
     let failedCount = 0
