@@ -23,6 +23,7 @@ const (
 	ClaudeWebErrorRegionBlocked ClaudeWebErrorKind = "web_session_region_blocked"
 	ClaudeWebErrorRateLimited   ClaudeWebErrorKind = "web_session_rate_limited"
 	ClaudeWebErrorUpstream      ClaudeWebErrorKind = "web_session_upstream"
+	ClaudeWebErrorProxyRequired ClaudeWebErrorKind = "web_session_proxy_required"
 )
 
 // ClaudeWebStreamError represents an error event delivered inside a successful
@@ -81,6 +82,7 @@ func (s *GatewayService) forwardClaudeWebSession(
 		proxyURL = account.Proxy.URL()
 	}
 	if err := s.enforceProxyRequirement(account, proxyURL); err != nil {
+		writeClaudeWebLocalError(c, http.StatusBadGateway, string(ClaudeWebErrorProxyRequired), claudeWebPublicErrorMessage(ClaudeWebErrorProxyRequired))
 		return nil, err
 	}
 
@@ -112,11 +114,13 @@ func (s *GatewayService) forwardClaudeWebSession(
 	}
 	plan, err := PlanClaudeWebConversation(parsed, upstreamModel, state, time.Now())
 	if err != nil {
+		writeClaudeWebRequestError(c, err)
 		return nil, err
 	}
 	recordClaudeWebConversationPlan(plan)
 	payload, err := BuildClaudeWebCompletion(parsed.Body.Bytes(), upstreamModel)
 	if err != nil {
+		writeClaudeWebRequestError(c, err)
 		return nil, err
 	}
 	payload.Prompt = plan.Prompt
@@ -327,6 +331,28 @@ func (w claudeWebFlushWriter) Write(data []byte) (int, error) {
 	return written, err
 }
 
+func writeClaudeWebRequestError(c *gin.Context, err error) {
+	message := "Invalid Claude Web client request"
+	if errors.Is(err, ErrClaudeWebUnsupportedContent) {
+		message = "Claude Web sessions support text-only conversation history; use an Anthropic OAuth account for tool, image, or document blocks"
+	}
+	writeClaudeWebLocalError(c, http.StatusBadRequest, "invalid_request_error", message)
+}
+
+func writeClaudeWebLocalError(c *gin.Context, status int, errorType, message string) {
+	if c == nil || c.Writer == nil || c.Writer.Written() {
+		return
+	}
+	c.JSON(status, gin.H{
+		"type": "error",
+		"error": gin.H{
+			"type":    errorType,
+			"message": message,
+		},
+	})
+	MarkResponseCommitted(c)
+}
+
 func claudeWebForwardError(err error) error {
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return err
@@ -400,7 +426,7 @@ func ClaudeWebPublicErrorFromBody(body []byte) (ClaudeWebErrorKind, string, bool
 	kind := ClaudeWebErrorKind(strings.TrimSpace(envelope.Error.Type))
 	switch kind {
 	case ClaudeWebErrorExpired, ClaudeWebErrorCloudflare, ClaudeWebErrorRegionBlocked,
-		ClaudeWebErrorRateLimited, ClaudeWebErrorUpstream:
+		ClaudeWebErrorRateLimited, ClaudeWebErrorUpstream, ClaudeWebErrorProxyRequired:
 		return kind, claudeWebPublicErrorMessage(kind), true
 	default:
 		return "", "", false
@@ -417,6 +443,8 @@ func claudeWebPublicErrorMessage(kind ClaudeWebErrorKind) string {
 		return "Claude Web is unavailable from the current outbound region; bind or replace the account proxy"
 	case ClaudeWebErrorRateLimited:
 		return "Claude Web account is rate limited"
+	case ClaudeWebErrorProxyRequired:
+		return "Claude Web account requires an upstream proxy; bind a proxy to the account or disable proxy.require_for_upstream"
 	default:
 		return "Claude Web upstream request failed"
 	}

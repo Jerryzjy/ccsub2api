@@ -3263,24 +3263,31 @@ func selectRoundRobin(accounts []accountWithLoad, preferOAuth bool) *accountWith
 // enforceProxyRequirement 防封：当 proxy.require_for_upstream 开启时，Anthropic 账号
 // 必须有可用代理出口，否则拒绝请求，避免用机房真实 IP 直连上游导致账号关联/封号。
 // 自定义 base URL 的账号（私有中转）不受此约束。
-func (s *GatewayService) enforceProxyRequirement(account *Account, proxyURL string) error {
-	if account == nil || s.cfg == nil {
-		return nil
-	}
-	if !s.cfg.Proxy.RequireForUpstream {
-		return nil
+var ErrUpstreamProxyRequired = errors.New("upstream proxy required")
+
+func requiresUpstreamProxy(cfg *config.Config, account *Account) bool {
+	if account == nil || cfg == nil || !cfg.Proxy.RequireForUpstream {
+		return false
 	}
 	if account.Platform != PlatformAnthropic {
+		return false
+	}
+	return !account.IsCustomBaseURLEnabled() || account.GetCustomBaseURL() == ""
+}
+
+func validateUpstreamProxyRequirement(cfg *config.Config, account *Account, proxyURL string) error {
+	if !requiresUpstreamProxy(cfg, account) || strings.TrimSpace(proxyURL) != "" {
 		return nil
 	}
-	if account.IsCustomBaseURLEnabled() && account.GetCustomBaseURL() != "" {
-		return nil
-	}
-	if strings.TrimSpace(proxyURL) == "" {
+	return fmt.Errorf("%w: account %d requires an upstream proxy; refusing direct connection to protect the account (bind a proxy or disable proxy.require_for_upstream)", ErrUpstreamProxyRequired, account.ID)
+}
+
+func (s *GatewayService) enforceProxyRequirement(account *Account, proxyURL string) error {
+	err := validateUpstreamProxyRequirement(s.cfg, account, proxyURL)
+	if err != nil {
 		logger.LegacyPrintf("service.gateway", "[AntiBan] refuse direct upstream: account=%d name=%s has no proxy (require_for_upstream=true)", account.ID, account.Name)
-		return fmt.Errorf("account %d has no upstream proxy; refusing direct connection to protect account (set a proxy or disable proxy.require_for_upstream)", account.ID)
 	}
-	return nil
+	return err
 }
 
 // selectTieBreak 按配置的 tie-break 策略在负载并列档内选号。

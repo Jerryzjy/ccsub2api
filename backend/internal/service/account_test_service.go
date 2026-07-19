@@ -353,6 +353,9 @@ func (s *AccountTestService) testClaudeWebAccountConnection(c *gin.Context, ctx 
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
+	if err := validateUpstreamProxyRequirement(s.cfg, account, proxyURL); err != nil {
+		return s.handleClaudeWebTestError(c, ctx, account, err)
+	}
 	if err := s.syncClaudeWebProfile(ctx, account, proxyURL); err != nil {
 		return s.handleClaudeWebTestError(c, ctx, account, err)
 	}
@@ -408,6 +411,14 @@ func (s *AccountTestService) processClaudeWebTestStream(c *gin.Context, body io.
 
 func (s *AccountTestService) handleClaudeWebTestError(c *gin.Context, ctx context.Context, account *Account, err error) error {
 	message := "Claude Web request failed"
+	if errors.Is(err, ErrUpstreamProxyRequired) {
+		message = claudeWebPublicErrorMessage(ClaudeWebErrorProxyRequired)
+		if s.accountRepo != nil {
+			_ = s.accountRepo.SetError(ctx, account.ID, string(ClaudeWebErrorProxyRequired))
+			_ = s.accountRepo.SetSchedulable(ctx, account.ID, false)
+		}
+		return s.sendErrorAndEnd(c, message)
+	}
 	var upstreamErr *ClaudeWebHTTPError
 	if errors.As(err, &upstreamErr) {
 		kind := upstreamErr.Kind
@@ -433,6 +444,9 @@ func (s *AccountTestService) probeClaudeWebSessionAccount(ctx context.Context, a
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
+	}
+	if err := validateUpstreamProxyRequirement(s.cfg, account, proxyURL); err != nil {
+		return "", err
 	}
 	if err := s.syncClaudeWebProfile(ctx, account, proxyURL); err != nil {
 		return "", err
@@ -514,6 +528,9 @@ func (s *AccountTestService) ProbeClaudeWebSession(ctx context.Context, accountI
 	organizationID, err := s.probeClaudeWebSessionAccount(ctx, account)
 	if err != nil {
 		reason := string(ClaudeWebErrorUpstream)
+		if errors.Is(err, ErrUpstreamProxyRequired) {
+			reason = string(ClaudeWebErrorProxyRequired)
+		}
 		var upstreamErr *ClaudeWebHTTPError
 		if errors.As(err, &upstreamErr) {
 			kind := upstreamErr.Kind

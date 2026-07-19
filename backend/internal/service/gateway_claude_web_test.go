@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -23,6 +24,26 @@ type claudeWebConversationCacheStub struct {
 	getCalls int
 	getHits  int
 	setCalls int
+}
+
+type claudeWebAccountStateRepoStub struct {
+	AccountRepository
+	errorAccountID       int64
+	errorMessage         string
+	schedulableAccountID int64
+	schedulable          bool
+}
+
+func (s *claudeWebAccountStateRepoStub) SetError(_ context.Context, id int64, message string) error {
+	s.errorAccountID = id
+	s.errorMessage = message
+	return nil
+}
+
+func (s *claudeWebAccountStateRepoStub) SetSchedulable(_ context.Context, id int64, schedulable bool) error {
+	s.schedulableAccountID = id
+	s.schedulable = schedulable
+	return nil
 }
 
 func (s *claudeWebConversationCacheStub) GetClaudeWebConversation(_ context.Context, key string) ([]byte, error) {
@@ -388,6 +409,56 @@ func TestClaudeWebAccountConnection(t *testing.T) {
 	require.Equal(t, "/api/account", transport.requests[0].URL.Path)
 }
 
+func TestClaudeWebAccountConnectionRejectsMissingRequiredProxy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	completionSSE := "event: content_block_delta\n" +
+		"data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\n" +
+		"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+	transport := &claudeWebTransportStub{responses: []*http.Response{
+		claudeWebTestResponse(http.StatusOK, `{"email_address":"web@example.com","memberships":[{"seat_tier":"pro"}]}`),
+		claudeWebTestResponse(http.StatusCreated, `{"uuid":"conv-test"}`),
+		claudeWebTestResponse(http.StatusOK, completionSSE),
+		claudeWebTestResponse(http.StatusNoContent, ""),
+	}}
+	testService := &AccountTestService{
+		claudeWebClient: NewClaudeWebClient(transport),
+		cfg: &config.Config{Proxy: config.ProxyPolicyConfig{
+			RequireForUpstream: true,
+		}},
+	}
+	account := &Account{ID: 230, Platform: PlatformAnthropic, Type: AccountTypeWebSession, Credentials: map[string]any{
+		ClaudeWebCredentialCookie:         "sessionKey=test",
+		ClaudeWebCredentialOrganizationID: "org-1",
+	}}
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/admin/accounts/230/test", nil)
+
+	err := testService.testClaudeAccountConnection(ctx, account, "claude-sonnet-4-5")
+
+	require.Error(t, err)
+	require.Contains(t, recorder.Body.String(), "requires an upstream proxy")
+	require.Empty(t, transport.requests, "account test must not bypass the production proxy policy")
+}
+
+func TestClaudeWebProxyRequiredMarksAccountUnschedulable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &claudeWebAccountStateRepoStub{}
+	testService := &AccountTestService{accountRepo: repo}
+	account := &Account{ID: 231, Platform: PlatformAnthropic, Type: AccountTypeWebSession}
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/admin/accounts/231/test", nil)
+
+	err := testService.handleClaudeWebTestError(ctx, context.Background(), account, fmt.Errorf("%w: test", ErrUpstreamProxyRequired))
+
+	require.Error(t, err)
+	require.Equal(t, int64(231), repo.errorAccountID)
+	require.Equal(t, string(ClaudeWebErrorProxyRequired), repo.errorMessage)
+	require.Equal(t, int64(231), repo.schedulableAccountID)
+	require.False(t, repo.schedulable)
+}
+
 func TestProbeClaudeWebSessionAccount(t *testing.T) {
 	transport := &claudeWebTransportStub{responses: []*http.Response{
 		claudeWebTestResponse(http.StatusOK, `{"email_address":"probe@example.com","memberships":[{"seat_tier":"pro"}]}`),
@@ -409,6 +480,92 @@ func TestProbeClaudeWebSessionAccount(t *testing.T) {
 	require.Equal(t, "/api/account", transport.requests[0].URL.Path)
 	require.Equal(t, http.MethodPost, transport.requests[1].Method)
 	require.Equal(t, http.MethodDelete, transport.requests[2].Method)
+}
+
+func TestProbeClaudeWebSessionAccountRejectsMissingRequiredProxy(t *testing.T) {
+	transport := &claudeWebTransportStub{responses: []*http.Response{
+		claudeWebTestResponse(http.StatusOK, `{"email_address":"probe@example.com","memberships":[{"seat_tier":"pro"}]}`),
+		claudeWebTestResponse(http.StatusCreated, `{"uuid":"conv-probe"}`),
+		claudeWebTestResponse(http.StatusNoContent, ""),
+	}}
+	testService := &AccountTestService{
+		claudeWebClient: NewClaudeWebClient(transport),
+		cfg: &config.Config{Proxy: config.ProxyPolicyConfig{
+			RequireForUpstream: true,
+		}},
+	}
+	account := &Account{ID: 240, Platform: PlatformAnthropic, Type: AccountTypeWebSession, Credentials: map[string]any{
+		ClaudeWebCredentialCookie:         "sessionKey=test",
+		ClaudeWebCredentialOrganizationID: "org-probe",
+	}}
+
+	_, err := testService.probeClaudeWebSessionAccount(context.Background(), account)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "requires an upstream proxy")
+	require.Empty(t, transport.requests, "automatic probe must not bypass the production proxy policy")
+}
+
+func TestGatewayForwardClaudeWebSessionReportsMissingRequiredProxy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	transport := &claudeWebTransportStub{}
+	service := &GatewayService{
+		cfg: &config.Config{Proxy: config.ProxyPolicyConfig{
+			RequireForUpstream: true,
+		}},
+		claudeWebClient: NewClaudeWebClient(transport),
+	}
+	account := &Account{ID: 241, Platform: PlatformAnthropic, Type: AccountTypeWebSession, Credentials: map[string]any{
+		ClaudeWebCredentialCookie:         "sessionKey=test",
+		ClaudeWebCredentialOrganizationID: "org-1",
+	}}
+	body := []byte(`{"model":"claude-sonnet-4-5","stream":false,"messages":[{"role":"user","content":"ping"}]}`)
+	parsed, err := ParseGatewayRequest(NewRequestBodyRef(body), PlatformAnthropic)
+	require.NoError(t, err)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	_, err = service.Forward(context.Background(), ctx, account, parsed)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "requires an upstream proxy")
+	require.Equal(t, http.StatusBadGateway, recorder.Code)
+	require.Contains(t, recorder.Body.String(), `"type":"web_session_proxy_required"`)
+	require.Contains(t, recorder.Body.String(), "requires an upstream proxy")
+	require.True(t, IsResponseCommitted(ctx))
+	require.Empty(t, transport.requests)
+}
+
+func TestGatewayForwardClaudeWebSessionReportsUnsupportedClientContent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	transport := &claudeWebTransportStub{}
+	service := &GatewayService{cfg: &config.Config{}, claudeWebClient: NewClaudeWebClient(transport)}
+	account := &Account{ID: 242, Platform: PlatformAnthropic, Type: AccountTypeWebSession, Credentials: map[string]any{
+		ClaudeWebCredentialCookie:         "sessionKey=test",
+		ClaudeWebCredentialOrganizationID: "org-1",
+	}}
+	body := []byte(`{
+		"model":"claude-sonnet-4-5","stream":false,
+		"messages":[
+			{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Read","input":{"file_path":"README.md"}}]},
+			{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"ok"}]}
+		]
+	}`)
+	parsed, err := ParseGatewayRequest(NewRequestBodyRef(body), PlatformAnthropic)
+	require.NoError(t, err)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	_, err = service.Forward(context.Background(), ctx, account, parsed)
+
+	require.ErrorIs(t, err, ErrClaudeWebUnsupportedContent)
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+	require.Contains(t, recorder.Body.String(), `"type":"invalid_request_error"`)
+	require.Contains(t, recorder.Body.String(), "text-only conversation")
+	require.True(t, IsResponseCommitted(ctx))
+	require.Empty(t, transport.requests)
 }
 
 func TestForwardCountTokensClaudeWebSessionUsesLocalEstimate(t *testing.T) {
