@@ -3221,7 +3221,8 @@
         :show-help="form.platform === 'anthropic'"
         :show-proxy-warning="form.platform !== 'openai' && !!form.proxy_id"
         :allow-multiple="form.platform === 'anthropic'"
-        :show-cookie-option="form.platform === 'anthropic'"
+        :show-cookie-option="form.platform === 'anthropic' && addMethod === 'setup-token'"
+        :show-credentials-import-option="form.platform === 'anthropic' && addMethod === 'oauth'"
         :show-refresh-token-option="form.platform === 'openai' || form.platform === 'antigravity'"
         :show-mobile-refresh-token-option="form.platform === 'openai'"
         :show-session-token-option="false"
@@ -3231,6 +3232,7 @@
         :show-project-id="geminiOAuthType === 'code_assist'"
         @generate-url="handleGenerateUrl"
         @cookie-auth="handleCookieAuth"
+        @import-credentials="handleClaudeCredentialsImport"
         @validate-refresh-token="handleValidateRefreshToken"
         @validate-mobile-refresh-token="handleOpenAIValidateMobileRT"
         @validate-session-token="handleValidateSessionToken"
@@ -3600,10 +3602,7 @@ import {
   applyInterceptWarmup,
   buildClaudeWebCredentials
 } from '@/components/account/credentialsBuilder'
-import {
-  buildClaudeCookieOAuthInput,
-  formatClaudeCookieOAuthError
-} from '@/components/account/claudeCookieOAuth'
+import { parseClaudeCredentialsJSON } from '@/components/account/claudeCredentialsImport'
 import {
   createClaudeWebSafetyState,
   serializeClaudeWebSafety
@@ -5858,40 +5857,31 @@ const handleExchangeCode = async () => {
   }
 }
 
+const handleClaudeCredentialsImport = async (content: string) => {
+  oauth.loading.value = true
+  oauth.error.value = ''
+
+  try {
+    const imported = parseClaudeCredentialsJSON(content)
+    const credentials: Record<string, unknown> = { ...imported.credentials }
+    applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
+    await createAccountAndFinish('anthropic', 'oauth', credentials, imported.extra)
+  } catch {
+    oauth.error.value = t('admin.accounts.oauth.credentialsInvalid')
+    appStore.showError(oauth.error.value)
+  } finally {
+    oauth.loading.value = false
+  }
+}
+
 const handleCookieAuth = async (sessionKey: string) => {
+  if (addMethod.value !== 'setup-token') return
+
   oauth.loading.value = true
   oauth.error.value = ''
 
   try {
     const proxyConfig = form.proxy_id ? { proxy_id: form.proxy_id } : {}
-
-    if (addMethod.value === 'oauth') {
-      const credentialInput = buildClaudeCookieOAuthInput(sessionKey)
-      if (!credentialInput.cookie && !credentialInput.session_key) {
-        oauth.error.value = t('admin.accounts.oauth.pleaseEnterSessionKey')
-        return
-      }
-
-      await adminAPI.accounts.createClaudeCookieOAuth({
-        name: form.name,
-        notes: form.notes,
-        ...credentialInput,
-        ...proxyConfig,
-        group_ids: form.group_ids,
-        concurrency: form.concurrency,
-        load_factor: form.load_factor ?? undefined,
-        priority: form.priority,
-        rate_multiplier: form.rate_multiplier,
-        expires_at: form.expires_at,
-        auto_pause_on_expired: autoPauseOnExpired.value,
-        extra: {}
-      })
-
-      appStore.showSuccess(t('admin.accounts.oauth.successCreated', { count: 1 }))
-      emit('created')
-      handleClose()
-      return
-    }
 
     const keys = oauth.parseSessionKeys(sessionKey)
 
@@ -6068,10 +6058,7 @@ const handleCookieAuth = async (sessionKey: string) => {
       oauth.error.value = errors.join('\n')
     }
   } catch (error: any) {
-    oauth.error.value = formatClaudeCookieOAuthError(
-      error,
-      t('admin.accounts.oauth.cookieAuthFailed')
-    )
+    oauth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.cookieAuthFailed')
   } finally {
     oauth.loading.value = false
   }

@@ -3,7 +3,7 @@ import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
 
 export type AddMethod = 'oauth' | 'setup-token'
-export type AuthInputMethod = 'manual' | 'cookie' | 'refresh_token' | 'mobile_refresh_token' | 'session_token' | 'access_token' | 'codex_session'
+export type AuthInputMethod = 'manual' | 'cookie' | 'credentials_file' | 'refresh_token' | 'mobile_refresh_token' | 'session_token' | 'access_token' | 'codex_session'
 
 export interface OAuthState {
   authUrl: string
@@ -108,42 +108,6 @@ export function useAccountOAuth() {
     }
   }
 
-  // Cookie-based authentication
-  const cookieAuth = async (
-    addMethod: AddMethod,
-    sessionKeyValue: string,
-    proxyId?: number | null
-  ): Promise<TokenInfo | null> => {
-    if (!sessionKeyValue.trim()) {
-      error.value = 'Please enter sessionKey'
-      return null
-    }
-
-    loading.value = true
-    error.value = ''
-
-    try {
-      const proxyConfig = proxyId ? { proxy_id: proxyId } : {}
-      const endpoint =
-        addMethod === 'oauth'
-          ? '/admin/accounts/cookie-auth'
-          : '/admin/accounts/setup-token-cookie-auth'
-
-      const tokenInfo = await adminAPI.accounts.exchangeCode(endpoint, {
-        session_id: '',
-        code: sessionKeyValue.trim(),
-        ...proxyConfig
-      })
-
-      return tokenInfo as TokenInfo
-    } catch (err: any) {
-      error.value = err.response?.data?.detail || 'Cookie authorization failed'
-      return null
-    } finally {
-      loading.value = false
-    }
-  }
-
   // Parse multiple session keys
   const parseSessionKeys = (input: string): string[] => {
     return input
@@ -179,7 +143,6 @@ export function useAccountOAuth() {
     resetState,
     generateAuthUrl,
     exchangeAuthCode,
-    cookieAuth,
     parseSessionKeys,
     buildExtraInfo
   }

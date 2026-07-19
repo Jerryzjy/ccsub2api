@@ -37,6 +37,17 @@
                 t('admin.accounts.oauth.cookieAutoAuth')
               }}</span>
             </label>
+            <label v-if="showCredentialsImportOption" class="flex cursor-pointer items-center gap-2">
+              <input
+                v-model="inputMethod"
+                type="radio"
+                value="credentials_file"
+                class="text-blue-600 focus:ring-blue-500"
+              />
+              <span class="text-sm text-blue-900 dark:text-blue-200">{{
+                t('admin.accounts.oauth.credentialsImport')
+              }}</span>
+            </label>
             <label v-if="showRefreshTokenOption" class="flex cursor-pointer items-center gap-2">
               <input
                 v-model="inputMethod"
@@ -258,6 +269,75 @@
           </div>
         </div>
 
+        <!-- Claude credentials.json import -->
+        <div v-if="inputMethod === 'credentials_file'" class="space-y-4">
+          <div
+            class="rounded-lg border border-blue-300 bg-white/80 p-4 dark:border-blue-600 dark:bg-gray-800/80"
+          >
+            <p class="mb-3 text-sm text-blue-700 dark:text-blue-300">
+              {{ t('admin.accounts.oauth.credentialsImportDesc') }}
+            </p>
+
+            <div class="mb-4">
+              <label class="mb-2 block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                {{ t('admin.accounts.oauth.credentialsFile') }}
+              </label>
+              <input
+                type="file"
+                accept=".json,application/json"
+                class="input w-full text-sm"
+                @change="handleClaudeCredentialsFile"
+              />
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ credentialsFileName || t('admin.accounts.oauth.credentialsFileHint') }}
+              </p>
+            </div>
+
+            <div
+              v-if="error"
+              class="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-700 dark:bg-red-900/30"
+            >
+              <p class="whitespace-pre-line text-sm text-red-600 dark:text-red-400">
+                {{ error }}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              class="btn btn-primary w-full"
+              :disabled="loading || !credentialsFileContent"
+              @click="handleImportClaudeCredentials"
+            >
+              <svg
+                v-if="loading"
+                class="-ml-1 mr-2 h-4 w-4 animate-spin"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  class="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  stroke-width="4"
+                ></circle>
+                <path
+                  class="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                ></path>
+              </svg>
+              <Icon v-else name="sparkles" size="sm" class="mr-2" />
+              {{
+                loading
+                  ? t('admin.accounts.oauth.importingCredentials')
+                  : t('admin.accounts.oauth.importCredentialsAndCreate')
+              }}
+            </button>
+          </div>
+        </div>
+
         <!-- Cookie Auto-Auth Form -->
         <div v-if="inputMethod === 'cookie'" class="space-y-4">
           <div
@@ -266,21 +346,6 @@
             <p class="mb-3 text-sm text-blue-700 dark:text-blue-300">
               {{ t('admin.accounts.oauth.cookieAutoAuthDesc') }}
             </p>
-
-            <div v-if="platform === 'anthropic'" class="mb-4">
-              <label class="mb-2 block text-sm font-semibold text-gray-700 dark:text-gray-300">
-                {{ t('admin.accounts.oauth.cookieFile') }}
-              </label>
-              <input
-                type="file"
-                accept=".txt,text/plain"
-                class="input w-full text-sm"
-                @change="handleClaudeCookieFile"
-              />
-              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {{ cookieFileName || t('admin.accounts.oauth.cookieFileHint') }}
-              </p>
-            </div>
 
             <!-- sessionKey Input -->
             <div class="mb-4">
@@ -650,7 +715,6 @@ import { useClipboard } from '@/composables/useClipboard'
 import Icon from '@/components/icons/Icon.vue'
 import type { AddMethod, AuthInputMethod } from '@/composables/useAccountOAuth'
 import type { AccountPlatform } from '@/types'
-import { readClaudeCookieFile } from '@/components/account/claudeCookieOAuth'
 
 interface Props {
   addMethod: AddMethod
@@ -663,6 +727,7 @@ interface Props {
   allowMultiple?: boolean
   methodLabel?: string
   showCookieOption?: boolean // Whether to show cookie auto-auth option
+  showCredentialsImportOption?: boolean
   showRefreshTokenOption?: boolean // Whether to show refresh token input option (OpenAI only)
   showMobileRefreshTokenOption?: boolean // Whether to show mobile refresh token option (OpenAI only)
   showSessionTokenOption?: boolean
@@ -681,7 +746,8 @@ const props = withDefaults(defineProps<Props>(), {
   showProxyWarning: true,
   allowMultiple: false,
   methodLabel: 'Authorization Method',
-  showCookieOption: true,
+  showCookieOption: false,
+  showCredentialsImportOption: false,
   showRefreshTokenOption: false,
   showMobileRefreshTokenOption: false,
   showSessionTokenOption: false,
@@ -695,6 +761,7 @@ const emit = defineEmits<{
   'generate-url': []
   'exchange-code': [code: string]
   'cookie-auth': [sessionKey: string]
+  'import-credentials': [content: string]
   'validate-refresh-token': [refreshToken: string]
   'validate-mobile-refresh-token': [refreshToken: string]
   'validate-session-token': [sessionToken: string]
@@ -734,10 +801,11 @@ const oauthImportantNotice = computed(() => {
 })
 
 // Local state
-const inputMethod = ref<AuthInputMethod>(props.showCookieOption ? 'manual' : 'manual')
+const inputMethod = ref<AuthInputMethod>('manual')
 const authCodeInput = ref('')
 const sessionKeyInput = ref('')
-const cookieFileName = ref('')
+const credentialsFileContent = ref('')
+const credentialsFileName = ref('')
 const refreshTokenInput = ref('')
 const sessionTokenInput = ref('')
 const codexSessionInput = ref('')
@@ -746,16 +814,13 @@ const oauthState = ref('')
 const projectId = ref('')
 
 // Computed: show method selection when either cookie or refresh token option is enabled
-const showMethodSelection = computed(() => props.showCookieOption || props.showRefreshTokenOption || props.showMobileRefreshTokenOption || props.showSessionTokenOption || props.showAccessTokenOption || props.showCodexSessionImportOption)
+const showMethodSelection = computed(() => props.showCookieOption || props.showCredentialsImportOption || props.showRefreshTokenOption || props.showMobileRefreshTokenOption || props.showSessionTokenOption || props.showAccessTokenOption || props.showCodexSessionImportOption)
 
 // Clipboard
 const { copied, copyToClipboard } = useClipboard()
 
 // Computed
 const parsedKeyCount = computed(() => {
-	if (sessionKeyInput.value.includes('\t') || /(^|;|\s)sessionKey=/.test(sessionKeyInput.value)) {
-		return sessionKeyInput.value.trim() ? 1 : 0
-	}
   return sessionKeyInput.value
     .split('\n')
     .map((k) => k.trim())
@@ -841,12 +906,18 @@ const handleCookieAuth = () => {
   }
 }
 
-const handleClaudeCookieFile = async (event: Event) => {
+const handleClaudeCredentialsFile = async (event: Event) => {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
-  sessionKeyInput.value = await readClaudeCookieFile(file)
-  cookieFileName.value = file.name
+  credentialsFileContent.value = await file.text()
+  credentialsFileName.value = file.name
+}
+
+const handleImportClaudeCredentials = () => {
+  if (credentialsFileContent.value) {
+    emit('import-credentials', credentialsFileContent.value)
+  }
 }
 
 const handleValidateRefreshToken = () => {
@@ -880,7 +951,8 @@ defineExpose({
     oauthState.value = ''
     projectId.value = ''
     sessionKeyInput.value = ''
-    cookieFileName.value = ''
+    credentialsFileContent.value = ''
+    credentialsFileName.value = ''
     refreshTokenInput.value = ''
     sessionTokenInput.value = ''
     codexSessionInput.value = ''

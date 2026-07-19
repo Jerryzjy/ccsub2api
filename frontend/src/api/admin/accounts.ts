@@ -135,19 +135,6 @@ export async function create(accountData: CreateAccountRequest): Promise<Account
   return data
 }
 
-export interface CreateClaudeCookieOAuthRequest
-  extends Omit<CreateAccountRequest, 'platform' | 'type' | 'credentials'> {
-  cookie: string
-  session_key: string
-}
-
-export async function createClaudeCookieOAuth(
-  payload: CreateClaudeCookieOAuthRequest
-): Promise<Account> {
-  const { data } = await apiClient.post<Account>('/admin/accounts/claude-cookie-oauth', payload)
-  return data
-}
-
 /**
  * Update account
  * @param id - Account ID
@@ -793,7 +780,6 @@ export const accountsAPI = {
   listWithEtag,
   getById,
   create,
-  createClaudeCookieOAuth,
   update,
   checkMixedChannelRisk,
   delete: deleteAccount,

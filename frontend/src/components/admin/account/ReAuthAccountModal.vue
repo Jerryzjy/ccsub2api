@@ -125,7 +125,7 @@
         :error="currentError"
         :show-help="isAnthropic"
         :show-proxy-warning="isAnthropic"
-        :show-cookie-option="isAnthropic"
+        :show-cookie-option="isAnthropic && addMethod === 'setup-token'"
         :allow-multiple="false"
         :method-label="t('admin.accounts.inputMethod')"
         :platform="isOpenAI ? 'openai' : isGemini ? 'gemini' : isAntigravity ? 'antigravity' : 'anthropic'"
@@ -491,19 +491,14 @@ const handleExchangeCode = async () => {
 }
 
 const handleCookieAuth = async (sessionKey: string) => {
-  if (!props.account || isOpenAILike.value) return
+  if (!props.account || isOpenAILike.value || addMethod.value !== 'setup-token') return
 
   claudeOAuth.loading.value = true
   claudeOAuth.error.value = ''
 
   try {
     const proxyConfig = props.account.proxy_id ? { proxy_id: props.account.proxy_id } : {}
-    const endpoint =
-      addMethod.value === 'oauth'
-        ? '/admin/accounts/cookie-auth'
-        : '/admin/accounts/setup-token-cookie-auth'
-
-    const tokenInfo = await adminAPI.accounts.exchangeCode(endpoint, {
+    const tokenInfo = await adminAPI.accounts.exchangeCode('/admin/accounts/setup-token-cookie-auth', {
       session_id: '',
       code: sessionKey.trim(),
       ...proxyConfig
