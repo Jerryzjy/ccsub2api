@@ -67,7 +67,11 @@ const DefaultCacheControlTTL = "5m"
 // CLICurrentVersion 是 sub2api 当前对外伪装的 Claude Code CLI 版本号（三段 semver）。
 // 用于 billing attribution block 中的 cc_version=X.Y.Z.{fp} 前缀以及 fingerprint 计算。
 // 必须与 DefaultHeaders["User-Agent"] 中的版本号严格一致；不一致会被 Anthropic 判第三方。
-const CLICurrentVersion = "2.1.191"
+//
+// 版本地板的第二重作用：Anthropic 会按该版本号对新模型做准入判定，过低直接 400
+// （error_code=claude_code_version_too_old，如"2.1.280 or newer is required"）。
+// 新模型上线后如果报该错，先把这里抬到上游要求的最低版本再排查其他项。
+const CLICurrentVersion = "2.1.280"
 
 // FullClaudeCodeMimicryBetas 返回最"像"真实 Claude Code CLI 的完整 beta 列表，
 // 用于 OAuth 账号伪装成 Claude Code 时使用。
@@ -118,6 +122,18 @@ type Model struct {
 
 // DefaultModels Claude Code 客户端支持的默认模型列表
 var DefaultModels = []Model{
+	{
+		ID:          "claude-opus-5",
+		Type:        "model",
+		DisplayName: "Claude Opus 5",
+		CreatedAt:   "2026-09-01T00:00:00Z",
+	},
+	{
+		ID:          "claude-sonnet-5",
+		Type:        "model",
+		DisplayName: "Claude Sonnet 5",
+		CreatedAt:   "2026-09-01T00:00:00Z",
+	},
 	{
 		ID:          "claude-fable-5",
 		Type:        "model",
@@ -230,6 +246,7 @@ var samplingRejectingModelPrefixes = []string{
 	"claude-opus-4-6",
 	"claude-opus-4-7",
 	"claude-opus-4-8",
+	"claude-opus-5",
 	"claude-fable", // 新代号系列同样不接受采样参数
 }
 

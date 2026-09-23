@@ -109,6 +109,17 @@ func (s *IdentityService) GetOrCreateFingerprint(ctx context.Context, accountID 
 			needWrite = true
 		}
 
+		// 版本地板：缓存指纹的 CLI 版本不得低于 claude.CLICurrentVersion。
+		// 缓存指纹只在"客户端送来更新的 UA"时才升级，旧账号会一直停在指纹创建时的
+		// 版本上；Anthropic 对新模型按 User-Agent 版本做准入判定，停留在旧版本会被
+		// 直接 400（claude_code_version_too_old）。真实设备也会升级 CLI，抬版本本身
+		// 不构成异常信号；device_id / OS / Arch 等设备特征保持不变。
+		if isNewerVersion(defaultFingerprint.UserAgent, cached.UserAgent) {
+			cached.UserAgent = defaultFingerprint.UserAgent
+			needWrite = true
+			logger.LegacyPrintf("service.identity", "Bumped fingerprint UA for account %d to %s (version floor)", accountID, defaultFingerprint.UserAgent)
+		}
+
 		if needWrite {
 			cached.UpdatedAt = time.Now().Unix()
 			if err := s.cache.SetFingerprint(ctx, accountID, cached); err != nil {
